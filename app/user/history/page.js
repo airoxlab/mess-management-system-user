@@ -265,79 +265,99 @@ export default function MealHistoryPage() {
   }
 
   return (
-    <div className="space-y-3">
-      {/* Compact White Header */}
-      <div className="bg-white rounded-xl p-4 border border-gray-200">
+    <div className="space-y-4">
+      {/* Compact Header */}
+      <div className="bg-gradient-to-r from-primary-600 to-emerald-500 rounded-xl p-3 text-white shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold text-gray-900">Meal History</h1>
-                <span className="flex items-center gap-1 text-[9px] bg-gray-100 px-2 py-0.5 rounded-full">
-                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                <h1 className="text-lg font-bold">Meal History</h1>
+                <span className="flex items-center gap-1 text-[10px] bg-white/20 px-2 py-0.5 rounded-full">
+                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
                   Live
                 </span>
               </div>
-              <p className="text-xs text-gray-600">Real-time activity timeline</p>
+              <p className="text-white/80 text-xs">Real-time meal activity timeline</p>
             </div>
           </div>
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value)}
-            className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-3 py-1.5 bg-white/20 border border-white/30 rounded-lg text-xs font-medium text-white focus:outline-none"
           >
-            <option value="week">7 days</option>
-            <option value="month">30 days</option>
-            <option value="all">All time</option>
+            <option value="week" className="text-gray-900">7 days</option>
+            <option value="month" className="text-gray-900">30 days</option>
+            <option value="all" className="text-gray-900">All time</option>
           </select>
         </div>
       </div>
 
-      {/* Compact Stats */}
+      {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-4 gap-2">
-          <div className="bg-green-50 rounded-lg border border-green-200 p-2.5 text-center">
-            <p className="text-xl font-bold text-green-600">{stats.collected}</p>
-            <p className="text-[10px] text-green-700">Collected</p>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 text-center">
+            <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-1.5">
+              <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <p className="text-xl font-bold text-gray-900">{stats.collected}</p>
+            <p className="text-[10px] text-gray-500">Collected</p>
           </div>
 
-          <div className="bg-amber-50 rounded-lg border border-amber-200 p-2.5 text-center">
-            <p className="text-xl font-bold text-amber-600">{stats.pending}</p>
-            <p className="text-[10px] text-amber-700">Pending</p>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 text-center">
+            <div className="w-9 h-9 bg-amber-100 rounded-lg flex items-center justify-center mx-auto mb-1.5">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <p className="text-xl font-bold text-gray-900">{stats.pending}</p>
+            <p className="text-[10px] text-gray-500">Pending</p>
           </div>
 
-          <div className="bg-red-50 rounded-lg border border-red-200 p-2.5 text-center">
-            <p className="text-xl font-bold text-red-600">{stats.cancelled}</p>
-            <p className="text-[10px] text-red-700">Skipped</p>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 text-center">
+            <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center mx-auto mb-1.5">
+              <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <p className="text-xl font-bold text-gray-900">{stats.cancelled}</p>
+            <p className="text-[10px] text-gray-500">Skipped</p>
           </div>
 
-          <div className="bg-gray-50 rounded-lg border border-gray-200 p-2.5 text-center">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 text-center">
+            <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-1.5">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </div>
             <p className="text-xl font-bold text-gray-900">{stats.total}</p>
-            <p className="text-[10px] text-gray-600">Total</p>
+            <p className="text-[10px] text-gray-500">Total</p>
           </div>
         </div>
       )}
 
-      {/* Compact Filter Tabs */}
-      <div className="overflow-x-auto -mx-3 px-3">
-        <div className="bg-white rounded-xl border border-gray-200 p-1 inline-flex min-w-max">
+      {/* Filter Tabs */}
+      <div className="overflow-x-auto -mx-4 px-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-1 inline-flex min-w-max">
           {[
-            { key: 'all', label: 'All' },
-            { key: 'collected', label: 'Collected' },
-            { key: 'pending', label: 'Pending' },
-            { key: 'cancelled', label: 'Skipped' },
+            { key: 'all', label: 'All', color: 'primary' },
+            { key: 'collected', label: 'Collected', color: 'green' },
+            { key: 'pending', label: 'Pending', color: 'amber' },
+            { key: 'cancelled', label: 'Skipped', color: 'red' },
           ].map((f) => (
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}
               className={classNames(
-                'px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap',
-                filter === f.key ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                'px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap',
+                filter === f.key ? 'bg-primary-500 text-white' : 'text-gray-600 hover:bg-gray-100'
               )}
             >
               {f.label}
@@ -346,11 +366,11 @@ export default function MealHistoryPage() {
         </div>
       </div>
 
-      {/* Compact Timeline */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+      {/* Activity Timeline */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
           <h2 className="font-bold text-gray-900 text-sm flex items-center gap-2">
-            <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Activity Timeline
@@ -358,86 +378,78 @@ export default function MealHistoryPage() {
         </div>
 
         {sortedTokens.length === 0 ? (
-          <div className="p-6 text-center">
-            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="p-8 text-center">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
-            <p className="text-gray-900 font-semibold text-sm mb-1">No activity found</p>
-            <p className="text-gray-500 text-xs">Your meal history will appear here</p>
+            <p className="text-gray-900 font-semibold mb-1">No activity found</p>
+            <p className="text-gray-500 text-sm">Your meal history will appear here</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
+          <div className="divide-y divide-gray-100">
             {Object.entries(groupedTokens).map(([date, dayTokens]) => (
-              <div key={date} className="p-3">
-                {/* Compact Date Header */}
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+              <div key={date} className="p-4">
+                {/* Date Header */}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
                     <span className="text-xs font-bold text-gray-600">
                       {new Date(date).getDate()}
                     </span>
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-900 text-xs">
+                    <p className="font-semibold text-gray-900 text-sm">
                       {formatDate(date, 'EEEE')}
                     </p>
-                    <p className="text-[9px] text-gray-500">
+                    <p className="text-[10px] text-gray-500">
                       {formatDate(date, 'MMMM d, yyyy')}
                     </p>
                   </div>
                 </div>
 
-                {/* Compact Activities */}
-                <div className="ml-3.5 border-l-2 border-gray-200 pl-3 space-y-2">
+                {/* Day's Activities */}
+                <div className="ml-4 border-l-2 border-gray-200 pl-4 space-y-3">
                   {dayTokens.map((token) => {
                     const mealInfo = getMealInfo(token.meal_type);
                     return (
-                      <div key={token.id} className="flex items-start gap-2 relative">
-                        {/* Compact Timeline Dot */}
-                        <div className="absolute -left-[18px] top-0.5">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                            token.status === 'COLLECTED' ? 'bg-green-600' :
-                            token.status === 'CANCELLED' ? 'bg-red-600' :
-                            token.status === 'PENDING' ? 'bg-amber-600' : 'bg-gray-400'
-                          }`}>
-                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          </div>
+                      <div key={token.id} className="flex items-start gap-3 relative">
+                        {/* Timeline Dot */}
+                        <div className="absolute -left-[22px] top-1">
+                          {getStatusIcon(token.status)}
                         </div>
 
-                        {/* Compact Activity Card */}
-                        <div className={`flex-1 p-2.5 rounded-lg border ${
+                        {/* Activity Card */}
+                        <div className={`flex-1 p-3 rounded-lg border ${
                           token.status === 'COLLECTED'
-                            ? 'bg-green-50 border-green-200'
+                            ? 'bg-green-50 border-green-100'
                             : token.status === 'CANCELLED'
-                            ? 'bg-red-50 border-red-200'
+                            ? 'bg-red-50 border-red-100'
                             : token.status === 'PENDING'
-                            ? 'bg-amber-50 border-amber-200'
-                            : 'bg-gray-50 border-gray-200'
+                            ? 'bg-amber-50 border-amber-100'
+                            : 'bg-gray-50 border-gray-100'
                         }`}>
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <div
-                                className="w-7 h-7 rounded-lg flex items-center justify-center"
+                                className="w-8 h-8 rounded-lg flex items-center justify-center"
                                 style={{ backgroundColor: `${mealInfo.color}20` }}
                               >
-                                <span className="text-xs font-bold" style={{ color: mealInfo.color }}>
+                                <span className="text-sm font-bold" style={{ color: mealInfo.color }}>
                                   {token.meal_type.charAt(0)}
                                 </span>
                               </div>
                               <div>
-                                <p className="font-semibold text-gray-900 text-xs">
+                                <p className="font-semibold text-gray-900 text-sm">
                                   {getStatusMessage(token)}
                                 </p>
-                                <p className="text-[9px] text-gray-500">
+                                <p className="text-[10px] text-gray-500">
                                   Token #{token.token_no} • {mealInfo.time}
                                 </p>
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className={`text-[10px] font-semibold ${
+                              <p className={`text-xs font-semibold ${
                                 token.status === 'COLLECTED'
                                   ? 'text-green-600'
                                   : token.status === 'CANCELLED' || token.status === 'SKIPPED'
@@ -447,6 +459,9 @@ export default function MealHistoryPage() {
                                   : 'text-gray-600'
                               }`}>
                                 {getTimestamp(token)}
+                              </p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {getDetailedTimestamp(token)}
                               </p>
                             </div>
                           </div>
@@ -461,9 +476,9 @@ export default function MealHistoryPage() {
         )}
       </div>
 
-      {/* Compact Summary */}
+      {/* Summary Footer */}
       {sortedTokens.length > 0 && (
-        <div className="bg-white rounded-xl p-2.5 text-center border border-gray-200">
+        <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
           <p className="text-xs text-gray-600">
             Showing <span className="font-bold text-gray-900">{sortedTokens.length}</span> activities
             {filter !== 'all' && (

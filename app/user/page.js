@@ -262,26 +262,26 @@ export default function UserDashboardPage() {
   const weeklyCalendar = getWeeklyCalendarData();
 
   return (
-    <div className="space-y-3">
-      {/* Compact White Header */}
-      <div className="bg-white rounded-xl p-4 border border-gray-200">
+    <div className="space-y-4">
+      {/* Compact Header */}
+      <div className="bg-gradient-to-r from-primary-600 to-emerald-500 rounded-xl p-4 text-white shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-lg font-bold">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-white text-xl font-bold">
               {memberData?.full_name?.charAt(0) || 'U'}
             </div>
             <div>
-              <h1 className="text-base font-bold text-gray-900">
+              <h1 className="text-lg font-bold">
                 {getGreeting()}, {memberData?.full_name?.split(' ')[0]}!
               </h1>
-              <p className="text-xs text-gray-600">{formatDate(currentTime, 'EEE, MMM d')} • <span className="capitalize bg-gray-100 px-2 py-0.5 rounded-full text-xs">{memberType}</span></p>
+              <p className="text-white/80 text-sm">{formatDate(currentTime, 'EEE, MMM d')} • <span className="capitalize">{memberType}</span></p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-lg font-mono font-bold text-gray-900">{formatPakistanTime(currentTime)}</p>
+            <p className="text-xl font-mono font-bold">{formatPakistanTime(currentTime)}</p>
             <div className="flex items-center justify-end gap-1.5 mt-0.5">
-              <div className={`w-1.5 h-1.5 rounded-full ${mealTimeStatus.status === 'active' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-              <span className="text-xs text-gray-600">{mealTimeStatus.label}</span>
+              <div className={`w-1.5 h-1.5 rounded-full ${mealTimeStatus.status === 'active' ? 'bg-white animate-pulse' : 'bg-white/50'}`}></div>
+              <span className="text-xs text-white/80">{mealTimeStatus.label}</span>
             </div>
           </div>
         </div>
@@ -290,25 +290,25 @@ export default function UserDashboardPage() {
       {/* Meal Summary - Only show if package exists */}
       {memberPackage ? (
         <>
-          {/* Compact Meals Overview */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
+          {/* Total Meals Overview */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-gray-900 text-sm">Meals Overview</h3>
               <div className="flex items-center gap-2">
                 {memberPackage.isUnlimited ? (
-                  <span className="text-xs bg-green-600 text-white px-2 py-1 rounded-full font-semibold">
-                    ∞ Unlimited
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                    Unlimited
                   </span>
                 ) : memberPackage.daysRemaining !== null && (
-                  <span className="text-xs bg-indigo-600 text-white px-2 py-1 rounded-full font-semibold">
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
                     {memberPackage.daysRemaining} days left
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Compact Filter Buttons */}
-            <div className="flex gap-1.5 mb-3">
+            {/* Filter Buttons */}
+            <div className="flex gap-2 mb-4">
               {[
                 { key: 'today', label: 'Today' },
                 { key: '7days', label: '7 Days' },
@@ -317,9 +317,9 @@ export default function UserDashboardPage() {
                 <button
                   key={f.key}
                   onClick={() => setDateFilter(f.key)}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
                     dateFilter === f.key
-                      ? 'bg-indigo-600 text-white'
+                      ? 'bg-primary-500 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
@@ -328,28 +328,28 @@ export default function UserDashboardPage() {
               ))}
             </div>
 
-            {/* Compact Stats Row */}
+            {/* Summary Stats Row */}
             <div className="grid grid-cols-4 gap-2 mb-4">
-              <div className="bg-gray-50 rounded-lg p-2.5 text-center border border-gray-200">
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
                 <p className="text-xl font-bold text-gray-900">{totalStats.total}</p>
-                <p className="text-xs text-gray-600">Total</p>
+                <p className="text-[10px] text-gray-500">Total</p>
               </div>
-              <div className="bg-green-50 rounded-lg p-2.5 text-center border border-green-200">
+              <div className="bg-green-50 rounded-lg p-3 text-center">
                 <p className="text-xl font-bold text-green-600">{totalStats.collected}</p>
-                <p className="text-xs text-green-700">Collected</p>
+                <p className="text-[10px] text-gray-500">Collected</p>
               </div>
-              <div className="bg-amber-50 rounded-lg p-2.5 text-center border border-amber-200">
+              <div className="bg-amber-50 rounded-lg p-3 text-center">
                 <p className="text-xl font-bold text-amber-600">{totalStats.pending}</p>
-                <p className="text-xs text-amber-700">Pending</p>
+                <p className="text-[10px] text-gray-500">Pending</p>
               </div>
-              <div className="bg-blue-50 rounded-lg p-2.5 text-center border border-blue-200">
+              <div className="bg-blue-50 rounded-lg p-3 text-center">
                 <p className="text-xl font-bold text-blue-600">{totalStats.remaining}</p>
-                <p className="text-xs text-blue-700">Remaining</p>
+                <p className="text-[10px] text-gray-500">Remaining</p>
               </div>
             </div>
 
-            {/* Compact Individual Meals */}
-            <div className="space-y-2">
+            {/* Individual Meals with Real-time Status */}
+            <div className="space-y-3">
               {enabledMeals.map((meal) => {
                 const stats = memberPackage.tokenStats?.[meal.value] || { collected: 0, pending: 0, total: 0 };
                 const remaining = stats.total - stats.collected;
@@ -361,59 +361,64 @@ export default function UserDashboardPage() {
                 return (
                   <div
                     key={meal.value}
-                    className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all ${
+                    className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
                       isCurrentMeal
-                        ? 'bg-indigo-50 border-indigo-200'
+                        ? 'bg-gradient-to-r from-primary-50 to-emerald-50 border-primary-200'
                         : todayStatus === 'COLLECTED'
                         ? 'bg-green-50 border-green-200'
-                        : 'bg-white border-gray-200'
+                        : 'bg-gray-50 border-gray-100'
                     }`}
                   >
-                    {/* Compact Meal Icon */}
+                    {/* Meal Icon */}
                     <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                      className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: `${meal.color}20` }}
                     >
-                      <span className="text-sm font-bold" style={{ color: meal.color }}>
+                      <span className="text-lg font-bold" style={{ color: meal.color }}>
                         {meal.label.charAt(0)}
                       </span>
                     </div>
 
-                    {/* Compact Meal Info */}
+                    {/* Meal Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="font-semibold text-gray-900 text-xs">{meal.label}</h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-gray-900 text-sm">{meal.label}</h4>
                         {isCurrentMeal && (
-                          <span className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.5 rounded-full">
+                          <span className="text-[10px] bg-primary-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">
                             NOW
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-gray-500">{meal.time}</p>
+                      <p className="text-xs text-gray-500">{meal.time}</p>
                     </div>
 
-                    {/* Compact Stats */}
-                    <div className="flex items-center gap-2 text-center">
+                    {/* Meal Stats */}
+                    <div className="flex items-center gap-3 text-center">
                       <div>
-                        <p className="text-xs font-bold text-green-600">{stats.collected}</p>
-                        <p className="text-[9px] text-gray-500">Used</p>
+                        <p className="text-sm font-bold text-green-600">{stats.collected}</p>
+                        <p className="text-[10px] text-gray-400">Used</p>
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-blue-600">{remaining}</p>
-                        <p className="text-[9px] text-gray-500">Left</p>
+                        <p className="text-sm font-bold text-blue-600">{remaining}</p>
+                        <p className="text-[10px] text-gray-400">Left</p>
                       </div>
                     </div>
 
-                    {/* Compact Status */}
+                    {/* Today Status - Real-time */}
                     <div className="flex-shrink-0">
                       {!isAvailableToday ? (
-                        <span className="text-[9px] bg-gray-200 text-gray-600 px-1.5 py-1 rounded font-semibold">Off</span>
+                        <span className="text-[10px] bg-gray-200 text-gray-500 px-2 py-1 rounded font-medium">Off</span>
                       ) : todayStatus === 'COLLECTED' ? (
-                        <span className="text-[9px] bg-green-600 text-white px-1.5 py-1 rounded font-semibold">Done</span>
+                        <span className="text-[10px] bg-green-500 text-white px-2 py-1 rounded font-medium flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          Done
+                        </span>
                       ) : todayStatus === 'CANCELLED' || !isSelected ? (
-                        <span className="text-[9px] bg-red-600 text-white px-1.5 py-1 rounded font-semibold">Skipped</span>
+                        <span className="text-[10px] bg-red-500 text-white px-2 py-1 rounded font-medium">Skipped</span>
                       ) : (
-                        <span className="text-[9px] bg-amber-600 text-white px-1.5 py-1 rounded font-semibold">Waiting</span>
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded font-medium">Waiting</span>
                       )}
                     </div>
                   </div>
@@ -436,58 +441,58 @@ export default function UserDashboardPage() {
             </div>
           </div>
 
-          {/* Compact Weekly Status */}
-          <div className="bg-white rounded-xl border border-gray-200 p-3">
-            <h3 className="font-bold text-gray-900 text-xs mb-2.5">Weekly Status</h3>
-            <div className="grid grid-cols-7 gap-1.5">
+          {/* Weekly Status Cards */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <h3 className="font-bold text-gray-900 text-sm mb-3">Weekly Status</h3>
+            <div className="grid grid-cols-7 gap-2">
               {weeklyCalendar.map((day) => (
                 <div
                   key={day.dateStr}
-                  className={`p-1.5 rounded-lg text-center transition-all ${
+                  className={`p-2 rounded-lg text-center transition-all ${
                     day.isToday
-                      ? 'bg-indigo-600 text-white'
+                      ? 'bg-primary-500 text-white'
                       : day.collected > 0 && day.collected === day.total
-                      ? 'bg-green-100 border border-green-400'
+                      ? 'bg-green-100 border-2 border-green-400'
                       : day.collected > 0
                       ? 'bg-green-50 border border-green-200'
                       : day.hasActivity
                       ? 'bg-amber-50 border border-amber-200'
-                      : 'bg-gray-50 border border-gray-200'
+                      : 'bg-gray-50'
                   }`}
                 >
-                  <p className={`text-[9px] font-medium ${day.isToday ? 'text-white/90' : 'text-gray-600'}`}>
+                  <p className={`text-[10px] font-medium ${day.isToday ? 'text-white/80' : 'text-gray-500'}`}>
                     {day.dayName}
                   </p>
-                  <p className={`text-base font-bold ${day.isToday ? 'text-white' : 'text-gray-900'}`}>
+                  <p className={`text-lg font-bold ${day.isToday ? 'text-white' : 'text-gray-900'}`}>
                     {day.dayNum}
                   </p>
                   {day.hasActivity && !day.isToday && (
-                    <div className="flex justify-center gap-0.5 mt-0.5">
+                    <div className="flex justify-center gap-0.5 mt-1">
                       {day.collected > 0 && (
-                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                        <span className="w-2 h-2 bg-green-500 rounded-full" title={`${day.collected} collected`}></span>
                       )}
                       {day.pending > 0 && (
-                        <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
+                        <span className="w-2 h-2 bg-amber-500 rounded-full" title={`${day.pending} pending`}></span>
                       )}
                       {day.cancelled > 0 && (
-                        <span className="w-1.5 h-1.5 bg-red-500 rounded-full"></span>
+                        <span className="w-2 h-2 bg-red-500 rounded-full" title={`${day.cancelled} skipped`}></span>
                       )}
                     </div>
                   )}
                 </div>
               ))}
             </div>
-            <div className="flex justify-center gap-3 mt-2.5 text-[9px] text-gray-600">
+            <div className="flex justify-center gap-4 mt-3 text-[10px] text-gray-500">
               <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
-                <span>Done</span>
+                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                <span>Collected</span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
+                <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
                 <span>Pending</span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-red-500 rounded-full"></span>
+                <span className="w-2 h-2 bg-red-500 rounded-full"></span>
                 <span>Skipped</span>
               </div>
             </div>
@@ -508,42 +513,42 @@ export default function UserDashboardPage() {
         </div>
       )}
 
-      {/* Compact Quick Actions */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* Quick Actions */}
+      <div className="grid grid-cols-3 gap-3">
         <Link
           href="/user/meals"
-          className="flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-lg hover:bg-gray-50 transition-all border border-gray-200"
+          className="flex flex-col items-center gap-2 p-3 bg-white rounded-xl hover:shadow-md transition-all border border-gray-100"
         >
-          <div className="w-8 h-8 bg-amber-600 rounded-lg flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg flex items-center justify-center shadow">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </div>
-          <span className="text-xs font-semibold text-gray-700">Schedule</span>
+          <span className="text-xs font-medium text-gray-700">Schedule</span>
         </Link>
 
         <Link
           href="/user/history"
-          className="flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-lg hover:bg-gray-50 transition-all border border-gray-200"
+          className="flex flex-col items-center gap-2 p-3 bg-white rounded-xl hover:shadow-md transition-all border border-gray-100"
         >
-          <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg flex items-center justify-center shadow">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <span className="text-xs font-semibold text-gray-700">History</span>
+          <span className="text-xs font-medium text-gray-700">History</span>
         </Link>
 
         <Link
           href="/user/profile"
-          className="flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-lg hover:bg-gray-50 transition-all border border-gray-200"
+          className="flex flex-col items-center gap-2 p-3 bg-white rounded-xl hover:shadow-md transition-all border border-gray-100"
         >
-          <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center shadow">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
-          <span className="text-xs font-semibold text-gray-700">Profile</span>
+          <span className="text-xs font-medium text-gray-700">Profile</span>
         </Link>
       </div>
     </div>
