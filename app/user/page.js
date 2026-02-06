@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { formatDate, getMealTimeStatus, getDayName, MEAL_TYPES } from '@/lib/utils';
+import { formatDate, getMealTimeStatus, getDayName, MEAL_TYPES, parseOrgData } from '@/lib/utils';
 import Link from 'next/link';
 import supabase from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -62,6 +62,15 @@ const MealIcons = {
   ),
 };
 
+// Format time string "HH:MM" to "h:mm AM/PM"
+function formatTimeDisplay(timeStr) {
+  if (!timeStr) return '';
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
 export default function UserDashboardPage() {
   const { memberData, memberType } = useAuth();
   const [memberPackage, setMemberPackage] = useState(null);
@@ -70,7 +79,7 @@ export default function UserDashboardPage() {
   const [weeklyTokens, setWeeklyTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const mealTimeStatus = getMealTimeStatus();
+  const [orgSettings, setOrgSettings] = useState(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -81,7 +90,20 @@ export default function UserDashboardPage() {
     if (!memberData?.id) return;
 
     try {
-      // Auto-generate tokens for today
+      // Fetch organization settings directly from organizations table
+      try {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id, name, settings, meal_skip_deadline')
+          .eq('is_active', true)
+          .limit(1)
+          .single();
+        setOrgSettings(parseOrgData(org));
+      } catch (orgError) {
+        console.log('Failed to fetch org settings:', orgError);
+      }
+
+      // Auto-generate tokens for today (silent - don't show errors to user)
       try {
         const genRes = await fetch('/api/generate-tokens', {
           method: 'POST',
@@ -92,12 +114,12 @@ export default function UserDashboardPage() {
             date: new Date().toISOString().split('T')[0],
           }),
         });
-        const genData = await genRes.json();
         if (!genRes.ok) {
-          toast.error(genData.error || 'Failed to generate tokens');
+          const genData = await genRes.json();
+          console.log('Token generation skipped:', genData.error);
         }
       } catch (genError) {
-        toast.error('Token generation failed');
+        console.log('Token generation skipped:', genError.message);
       }
 
       // Fetch member package with stats
@@ -187,7 +209,7 @@ export default function UserDashboardPage() {
           {
             event: '*',
             schema: 'public',
-            table: 'member_meal_packages',
+            table: 'member_packages',
             filter: `member_id=eq.${memberData.id}`,
           },
           () => fetchData()
@@ -201,6 +223,19 @@ export default function UserDashboardPage() {
             filter: `member_id=eq.${memberData.id}`,
           },
           () => fetchData()
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'organizations',
+          },
+          (payload) => {
+            if (payload.new) {
+              setOrgSettings(parseOrgData(payload.new));
+            }
+          }
         )
         .subscribe();
 
@@ -244,6 +279,14 @@ export default function UserDashboardPage() {
     return mealDays.map(d => d.toLowerCase()).includes(todayName);
   };
 
+  // Get meal time display from org settings (organizations table)
+  const getMealTimeDisplay = (mealValue) => {
+    const times = orgSettings?.mealTimes?.[mealValue];
+    if (!times?.start || !times?.end) return 'Loading...';
+    return `${formatTimeDisplay(times.start)} - ${formatTimeDisplay(times.end)}`;
+  };
+
+  const mealTimeStatus = getMealTimeStatus(orgSettings);
   const enabledMeals = getEnabledMeals();
 
   if (loading) {
@@ -537,9 +580,9 @@ export default function UserDashboardPage() {
               const stats = memberPackage.mealStats?.[meal.value] || { total: 0, consumed: 0, remaining: 0 };
 
               // Status
-              let statusText = 'Available';
-              let statusColor = 'bg-amber-600';
-              let statusBg = 'bg-amber-50';
+              let statusText = 'Confirmed';
+              let statusColor = 'bg-green-600';
+              let statusBg = 'bg-green-50';
 
               if (!isAvailableToday) {
                 statusText = 'Off';
@@ -583,7 +626,7 @@ export default function UserDashboardPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] lg:text-xs text-gray-500">{meal.time}</p>
+                      <p className="text-[10px] lg:text-xs text-gray-500">{getMealTimeDisplay(meal.value)}</p>
                       <p className="text-[9px] lg:text-[10px] text-gray-400 mt-0.5">
                         {stats.consumed}/{stats.total} consumed
                       </p>

@@ -8,10 +8,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Meal time configuration
-const MEAL_CONFIG = {
-  breakfast: { time: '07:30:00', endTime: '09:00:00' },
-  lunch: { time: '12:30:00', endTime: '14:00:00' },
+// Default meal time configuration (fallback if org settings not available)
+const DEFAULT_MEAL_CONFIG = {
+  breakfast: { time: '07:00:00', endTime: '09:00:00' },
+  lunch: { time: '12:00:00', endTime: '14:00:00' },
   dinner: { time: '19:00:00', endTime: '21:00:00' },
 };
 
@@ -44,11 +44,14 @@ export async function POST(request) {
 
     // Get member's active package
     const { data: memberPackage, error: pkgError } = await supabase
-      .from('member_meal_packages')
+      .from('member_packages')
       .select('*')
       .eq('member_id', memberId)
       .eq('member_type', memberType)
       .eq('is_active', true)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
     if (pkgError || !memberPackage) {
@@ -58,27 +61,84 @@ export async function POST(request) {
       );
     }
 
-    // Get organization_id from organizations table (first active one)
-    // Note: member tables don't have organization_id column in this schema
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('is_active', true)
-      .limit(1)
-      .single();
-
-    if (orgError && orgError.code !== 'PGRST116') {
-      console.error('Organization fetch error:', orgError);
-    }
-
-    const organizationId = org?.id;
+    // Get organization_id from the package itself
+    const organizationId = memberPackage.organization_id;
 
     if (!organizationId) {
-      console.error('No active organization found');
+      console.error('No organization_id on package');
       return NextResponse.json(
         { error: 'No active organization found. Please contact admin.' },
         { status: 400 }
       );
+    }
+
+    // Fetch organization settings for meal times (from DB, not hardcoded)
+    const { data: orgData } = await supabase
+      .from('organizations')
+      .select('settings')
+      .eq('id', organizationId)
+      .single();
+
+    const orgSettings = orgData?.settings || {};
+    const MEAL_CONFIG = {
+      breakfast: {
+        time: orgSettings.breakfast_start ? `${orgSettings.breakfast_start}:00` : DEFAULT_MEAL_CONFIG.breakfast.time,
+        endTime: orgSettings.breakfast_end ? `${orgSettings.breakfast_end}:00` : DEFAULT_MEAL_CONFIG.breakfast.endTime,
+      },
+      lunch: {
+        time: orgSettings.lunch_start ? `${orgSettings.lunch_start}:00` : DEFAULT_MEAL_CONFIG.lunch.time,
+        endTime: orgSettings.lunch_end ? `${orgSettings.lunch_end}:00` : DEFAULT_MEAL_CONFIG.lunch.endTime,
+      },
+      dinner: {
+        time: orgSettings.dinner_start ? `${orgSettings.dinner_start}:00` : DEFAULT_MEAL_CONFIG.dinner.time,
+        endTime: orgSettings.dinner_end ? `${orgSettings.dinner_end}:00` : DEFAULT_MEAL_CONFIG.dinner.endTime,
+      },
+    };
+
+    // Ensure member exists in members table (required by meal_tokens foreign key)
+    const { data: existingMember } = await supabase
+      .from('members')
+      .select('id')
+      .eq('id', memberId)
+      .single();
+
+    if (!existingMember) {
+      const memberTable = memberType === 'student' ? 'student_members'
+        : memberType === 'staff' ? 'staff_members'
+        : 'faculty_members';
+
+      const { data: memberInfo } = await supabase
+        .from(memberTable)
+        .select('*')
+        .eq('id', memberId)
+        .single();
+
+      if (memberInfo) {
+        const memberIdValue = memberInfo.membership_id
+          || memberInfo.roll_number
+          || memberInfo.employee_id
+          || memberId.slice(0, 50);
+
+        const { error: syncError } = await supabase.from('members').insert({
+          id: memberId,
+          organization_id: organizationId,
+          member_id: memberIdValue,
+          name: memberInfo.full_name,
+          contact: memberInfo.contact_number,
+          email: memberInfo.email_address,
+          department: memberInfo.department_program || memberInfo.department_section || memberInfo.department,
+          member_type: memberType,
+          status: 'active',
+        });
+
+        if (syncError) {
+          console.error('Member sync error:', syncError);
+          return NextResponse.json(
+            { error: 'Failed to sync member data', details: syncError.message },
+            { status: 500 }
+          );
+        }
+      }
     }
 
     // Check if date is within package validity

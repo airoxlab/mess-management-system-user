@@ -2,9 +2,27 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { formatDate, MEAL_TYPES, getDayName } from '@/lib/utils';
+import { formatDate, MEAL_TYPES, getDayName, parseOrgData } from '@/lib/utils';
 import { toast } from 'sonner';
 import supabase from '@/lib/supabase';
+
+// Format time string "HH:MM" or "HH:MM:SS" to "h:mm AM/PM"
+function formatTimeDisplay(timeStr) {
+  if (!timeStr) return '';
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+// Parse time string to today's Date object
+function parseTimeToDate(timeStr) {
+  if (!timeStr) return null;
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
 
 export default function MealSchedulePage() {
   const { memberData, memberType } = useAuth();
@@ -17,8 +35,16 @@ export default function MealSchedulePage() {
   const [skipping, setSkipping] = useState(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [mealHistory, setMealHistory] = useState([]);
-  const [historyFilter, setHistoryFilter] = useState('all'); // all, collected, pending, cancelled, missed
-  const [historyMealFilter, setHistoryMealFilter] = useState('all'); // all, breakfast, lunch, dinner
+  const [historyFilter, setHistoryFilter] = useState('all');
+  const [historyMealFilter, setHistoryMealFilter] = useState('all');
+  const [orgSettings, setOrgSettings] = useState(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Real-time clock for deadline tracking
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Generate next 14 days for selection
   const generateDates = () => {
@@ -42,39 +68,65 @@ export default function MealSchedulePage() {
 
   const enabledMeals = getEnabledMeals();
 
+  // Get meal time display from org settings (organizations table)
+  const getMealTimeDisplay = (mealValue) => {
+    const times = orgSettings?.mealTimes?.[mealValue];
+    if (!times?.start || !times?.end) return 'Loading...';
+    return `${formatTimeDisplay(times.start)} - ${formatTimeDisplay(times.end)}`;
+  };
+
+  // Get the skip deadline time for a meal
+  const getDeadlineTime = (mealValue) => {
+    if (!orgSettings?.mealTimes?.[mealValue]) return null;
+    const startTime = orgSettings.mealTimes[mealValue].start;
+    const deadlineMinutes = orgSettings.mealSkipDeadline || 30;
+    const mealStart = parseTimeToDate(startTime);
+    if (!mealStart) return null;
+    const deadline = new Date(mealStart);
+    deadline.setMinutes(deadline.getMinutes() - deadlineMinutes);
+    return deadline;
+  };
+
+  // Check if a meal toggle is locked (past the skip deadline for today)
+  const isMealLocked = (mealValue) => {
+    const deadline = getDeadlineTime(mealValue);
+    if (!deadline) return false;
+    return currentTime >= deadline;
+  };
+
+  // Get remaining time until deadline
+  const getTimeUntilDeadline = (mealValue) => {
+    const deadline = getDeadlineTime(mealValue);
+    if (!deadline) return null;
+    const diff = deadline.getTime() - currentTime.getTime();
+    if (diff <= 0) return null;
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 0) return `${hours}h ${minutes}m left`;
+    return `${minutes}m left`;
+  };
+
   // Check if a meal is available on a specific date based on the days array
   const isMealAvailableOnDate = (mealValue, date) => {
     if (!memberPackage) return false;
-
     const isEnabled = memberPackage[`${mealValue}_enabled`];
     if (!isEnabled) return false;
-
     const mealDays = memberPackage[`${mealValue}_days`] || [];
-
-    // If no days specified, meal is available every day
     if (mealDays.length === 0) return true;
-
-    // Get day name (lowercase) from the date
     const dayName = getDayName(date).toLowerCase();
-
-    // Check if this day is in the allowed days
     return mealDays.map(d => d.toLowerCase()).includes(dayName);
   };
 
   const fetchMealHistory = useCallback(async () => {
     if (!memberData?.id) return;
-
     try {
-      // Fetch last 30 days of meal history
       const endDate = new Date().toISOString().split('T')[0];
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30);
       const startDateStr = startDate.toISOString().split('T')[0];
-
       const tokensRes = await fetch(
         `/api/meal-tokens?memberId=${memberData.id}&startDate=${startDateStr}&endDate=${endDate}`
       );
-
       if (tokensRes.ok) {
         const tokensData = await tokensRes.json();
         setMealHistory(tokensData.tokens || []);
@@ -86,9 +138,21 @@ export default function MealSchedulePage() {
 
   const fetchData = useCallback(async () => {
     if (!memberData?.id) return;
-
     try {
       setLoading(true);
+
+      // Fetch organization settings directly from organizations table
+      try {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('id, name, settings, meal_skip_deadline')
+          .eq('is_active', true)
+          .limit(1)
+          .single();
+        setOrgSettings(parseOrgData(org));
+      } catch (orgError) {
+        console.log('Failed to fetch org settings:', orgError);
+      }
 
       // Fetch member package
       try {
@@ -119,10 +183,7 @@ export default function MealSchedulePage() {
         setTodayTokens([]);
       }
 
-      // Fetch existing meal selections
       await fetchSelections();
-
-      // Fetch meal history
       await fetchMealHistory();
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -136,47 +197,30 @@ export default function MealSchedulePage() {
     if (memberData?.id) {
       fetchData();
 
-      // Set up real-time subscription for tokens, selections, and packages
       const channel = supabase
         .channel('meals-realtime')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'meal_tokens',
-            filter: `member_id=eq.${memberData.id}`,
-          },
-          (payload) => {
-            console.log('Token update:', payload.eventType);
-            fetchData();
-            fetchMealHistory(); // Update history in real-time
-          }
+          { event: '*', schema: 'public', table: 'meal_tokens', filter: `member_id=eq.${memberData.id}` },
+          () => { fetchData(); fetchMealHistory(); }
         )
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'meal_selections',
-            filter: `member_id=eq.${memberData.id}`,
-          },
-          (payload) => {
-            console.log('Selection update:', payload.eventType);
-            fetchSelections();
-          }
+          { event: '*', schema: 'public', table: 'meal_selections', filter: `member_id=eq.${memberData.id}` },
+          () => { fetchSelections(); }
         )
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'member_meal_packages',
-            filter: `member_id=eq.${memberData.id}`,
-          },
+          { event: '*', schema: 'public', table: 'member_packages', filter: `member_id=eq.${memberData.id}` },
+          () => { fetchData(); }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'organizations' },
           (payload) => {
-            console.log('Package update:', payload.eventType);
-            fetchData();
+            if (payload.new) {
+              setOrgSettings(parseOrgData(payload.new));
+            }
           }
         )
         .subscribe();
@@ -189,19 +233,15 @@ export default function MealSchedulePage() {
 
   const fetchSelections = async () => {
     if (!memberData?.id) return;
-
     try {
       const startDate = selectableDates[0].toISOString().split('T')[0];
       const endDate = selectableDates[selectableDates.length - 1].toISOString().split('T')[0];
-
       const selectionsRes = await fetch(
         `/api/meal-selections?memberId=${memberData.id}&memberType=${memberType}&startDate=${startDate}&endDate=${endDate}`
       );
-
       if (selectionsRes.ok) {
         const selectionsData = await selectionsRes.json();
         const selectionsMap = {};
-
         selectableDates.forEach((date) => {
           const dateStr = date.toISOString().split('T')[0];
           const existing = selectionsData.selections?.find((s) => s.date === dateStr);
@@ -211,7 +251,6 @@ export default function MealSchedulePage() {
             dinner: existing?.dinner_needed ?? true,
           };
         });
-
         setSelections(selectionsMap);
       }
     } catch (error) {
@@ -221,16 +260,18 @@ export default function MealSchedulePage() {
 
   // Toggle a meal for today (skip/want - saves to backend)
   const handleToggleMeal = async (mealType) => {
+    // Check if locked
+    if (isMealLocked(mealType)) {
+      toast.error(`Cannot change ${mealType} - skip deadline has passed`);
+      return;
+    }
+
     try {
       setSkipping(mealType);
-
       const today = new Date().toISOString().split('T')[0];
-
-      // Check current state
       const currentState = selections[today]?.[mealType] !== false;
-      const newState = !currentState; // Toggle the state
+      const newState = !currentState;
 
-      // Update the selection
       const response = await fetch('/api/meal-selections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -247,16 +288,11 @@ export default function MealSchedulePage() {
       });
 
       if (response.ok) {
-        // Update local state
         setSelections((prev) => ({
           ...prev,
-          [today]: {
-            ...prev[today],
-            [mealType]: newState,
-          },
+          [today]: { ...prev[today], [mealType]: newState },
         }));
 
-        // If toggling to skip (false), also try to skip the token if it exists
         if (!newState) {
           try {
             await fetch('/api/meal-tokens/skip', {
@@ -271,17 +307,15 @@ export default function MealSchedulePage() {
               }),
             });
           } catch (skipError) {
-            // Token might not exist yet, that's okay
             console.log('Token skip skipped:', skipError);
           }
         }
 
         toast.success(
           newState
-            ? `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} marked as wanted`
+            ? `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} confirmed`
             : `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} skipped for today`
         );
-        // Don't call fetchData() - let real-time subscription handle updates
       } else {
         toast.error('Failed to update meal');
       }
@@ -302,10 +336,7 @@ export default function MealSchedulePage() {
   const toggleMeal = (dateStr, mealType) => {
     setSelections((prev) => ({
       ...prev,
-      [dateStr]: {
-        ...prev[dateStr],
-        [mealType]: !prev[dateStr]?.[mealType],
-      },
+      [dateStr]: { ...prev[dateStr], [mealType]: !prev[dateStr]?.[mealType] },
     }));
   };
 
@@ -325,7 +356,6 @@ export default function MealSchedulePage() {
   const handleSaveSelections = async () => {
     try {
       setSaving(true);
-
       const selectionsArray = Object.entries(selections).map(([date, meals]) => ({
         date,
         breakfast: meals.breakfast ?? true,
@@ -362,29 +392,6 @@ export default function MealSchedulePage() {
   const todayStr = todayDate.toISOString().split('T')[0];
   const availableMealsToday = enabledMeals.filter(meal => isMealAvailableOnDate(meal.value, todayDate));
 
-  // Check if today's meals are all selected
-  const getTodaySelectionStatus = () => {
-    const todaySelection = selections[todayStr];
-    if (!todaySelection) return { allSelected: true, someSelected: true };
-
-    let selected = 0;
-    let total = 0;
-
-    availableMealsToday.forEach(meal => {
-      total++;
-      if (todaySelection[meal.value] !== false) selected++;
-    });
-
-    return {
-      allSelected: selected === total,
-      someSelected: selected > 0,
-      selected,
-      total
-    };
-  };
-
-  const todayStatus = getTodaySelectionStatus();
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -393,7 +400,6 @@ export default function MealSchedulePage() {
     );
   }
 
-  // No package - show message
   if (!memberPackage) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -408,7 +414,6 @@ export default function MealSchedulePage() {
     );
   }
 
-  // No enabled meals
   if (enabledMeals.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -423,11 +428,12 @@ export default function MealSchedulePage() {
     );
   }
 
+  const skipDeadlineMinutes = orgSettings?.mealSkipDeadline || 30;
+
   return (
     <div className="space-y-3 pb-6">
-      {/* Modern Flat Header - Ultra Compact */}
+      {/* Header */}
       <div className="bg-white border border-gray-200">
-        {/* Top Bar - Minimal */}
         <div className="flex items-center justify-between p-2.5 lg:p-3 bg-gradient-to-r from-indigo-50 to-purple-50">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 lg:w-9 lg:h-9 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
@@ -440,9 +446,18 @@ export default function MealSchedulePage() {
               <p className="text-[9px] lg:text-[10px] text-gray-500">{formatDate(todayDate, 'EEEE, MMM d')}</p>
             </div>
           </div>
+          {/* Skip deadline info badge */}
+          <div className="flex items-center gap-1 px-2 py-1 bg-white/80 border border-gray-200 rounded-md">
+            <svg className="w-3 h-3 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-[9px] lg:text-[10px] font-semibold text-gray-600">
+              Skip deadline: {skipDeadlineMinutes} min before
+            </span>
+          </div>
         </div>
 
-        {/* Inline Meal Stats - Compact Pills */}
+        {/* Meal Stats Pills */}
         {memberPackage && (
           <div className="flex items-center gap-1.5 px-2.5 py-2 lg:px-3 lg:py-2.5 border-t border-gray-100 overflow-x-auto">
             {MEAL_TYPES.map((meal) => {
@@ -471,7 +486,7 @@ export default function MealSchedulePage() {
         )}
       </div>
 
-      {/* Compact Action Buttons - Modern Flat */}
+      {/* Action Buttons */}
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => setShowSelectionModal(true)}
@@ -504,7 +519,7 @@ export default function MealSchedulePage() {
         </button>
       </div>
 
-      {/* Modern Today's Meals - Flat Design */}
+      {/* Today's Meals */}
       <div className="bg-white border border-gray-200">
         <div className="px-3 py-2.5 lg:px-4 lg:py-3 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50">
           <h2 className="font-bold text-gray-900 text-xs lg:text-sm flex items-center gap-1.5">
@@ -531,11 +546,29 @@ export default function MealSchedulePage() {
                 const tokenStatus = getTodayMealStatus(meal.value);
                 const isCollected = tokenStatus === 'COLLECTED';
                 const isCancelled = tokenStatus === 'CANCELLED' || tokenStatus === 'SKIPPED';
+                const locked = isMealLocked(meal.value);
+                const deadlineTime = getDeadlineTime(meal.value);
+                const timeLeft = getTimeUntilDeadline(meal.value);
+                const mealTime = getMealTimeDisplay(meal.value);
+
+                // Determine status
+                let statusText = 'Confirmed';
+                let statusColor = 'bg-green-600';
+                if (isCollected) {
+                  statusText = 'Done';
+                  statusColor = 'bg-green-600';
+                } else if (isCancelled || !isSelected) {
+                  statusText = 'Skipped';
+                  statusColor = 'bg-red-600';
+                } else if (locked) {
+                  statusText = 'Locked';
+                  statusColor = 'bg-indigo-600';
+                }
 
                 return (
                   <div key={meal.value} className="p-2.5 lg:p-3 hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-2.5">
-                      {/* Icon - Ultra Compact */}
+                      {/* Icon */}
                       <div
                         className="w-9 h-9 lg:w-10 lg:h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                         style={{
@@ -548,22 +581,59 @@ export default function MealSchedulePage() {
                         </span>
                       </div>
 
-                      {/* Info - Compact */}
+                      {/* Info */}
                       <div className="flex-1 min-w-0">
                         <h4 className="font-bold text-gray-900 text-xs lg:text-sm">{meal.label}</h4>
-                        <p className="text-[10px] lg:text-xs text-gray-500">{meal.time}</p>
+                        <p className="text-[10px] lg:text-xs text-gray-500">{mealTime}</p>
+                        {/* Deadline info */}
+                        {!isCollected && deadlineTime && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {locked ? (
+                              <span className="text-[9px] lg:text-[10px] text-red-500 font-semibold flex items-center gap-0.5">
+                                <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                </svg>
+                                Deadline passed ({formatTimeDisplay(orgSettings?.mealTimes?.[meal.value]?.start?.slice(0, 5))})
+                              </span>
+                            ) : (
+                              <span className="text-[9px] lg:text-[10px] text-amber-600 font-semibold flex items-center gap-0.5">
+                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Deadline: {formatTimeDisplay(`${deadlineTime.getHours().toString().padStart(2, '0')}:${deadlineTime.getMinutes().toString().padStart(2, '0')}`)} ({timeLeft})
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
-                      {/* Toggle Switch - Modern */}
+                      {/* Toggle Switch */}
                       {!isCollected && (
                         <button
                           onClick={() => handleToggleMeal(meal.value)}
-                          disabled={skipping === meal.value}
-                          className={`relative inline-flex h-6 w-11 lg:h-7 lg:w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 flex-shrink-0 ${
+                          disabled={skipping === meal.value || locked}
+                          className={`relative inline-flex h-6 w-11 lg:h-7 lg:w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex-shrink-0 ${
+                            locked
+                              ? 'opacity-50 cursor-not-allowed'
+                              : 'disabled:opacity-50'
+                          } ${
                             isSelected && !isCancelled ? 'bg-green-500' : 'bg-gray-300'
                           }`}
-                          title={isSelected && !isCancelled ? 'Click to skip' : 'Click to want'}
+                          title={
+                            locked
+                              ? 'Deadline passed - cannot change'
+                              : isSelected && !isCancelled
+                              ? 'Click to skip'
+                              : 'Click to confirm'
+                          }
                         >
+                          {locked && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <svg className="w-3 h-3 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          )}
                           <span
                             className={`inline-block h-4 w-4 lg:h-5 lg:w-5 transform rounded-full bg-white shadow-lg transition-transform ${
                               isSelected && !isCancelled ? 'translate-x-6 lg:translate-x-6' : 'translate-x-1'
@@ -572,26 +642,16 @@ export default function MealSchedulePage() {
                         </button>
                       )}
 
-                      {/* Status Badge - Modern */}
-                      {isCollected ? (
-                        <span className="text-[9px] lg:text-[10px] bg-green-600 text-white px-2 py-1 rounded-md font-bold flex-shrink-0">
-                          Done
-                        </span>
-                      ) : isCancelled || !isSelected ? (
-                        <span className="text-[9px] lg:text-[10px] bg-red-600 text-white px-2 py-1 rounded-md font-bold flex-shrink-0">
-                          Skipped
-                        </span>
-                      ) : (
-                        <span className="text-[9px] lg:text-[10px] bg-amber-600 text-white px-2 py-1 rounded-md font-bold flex-shrink-0">
-                          Available
-                        </span>
-                      )}
+                      {/* Status Badge */}
+                      <span className={`text-[9px] lg:text-[10px] ${statusColor} text-white px-2 py-1 rounded-md font-bold flex-shrink-0`}>
+                        {statusText}
+                      </span>
                     </div>
                   </div>
                 );
               })}
 
-              {/* Unavailable meals - Compact */}
+              {/* Unavailable meals */}
               {enabledMeals.filter(meal => !isMealAvailableOnDate(meal.value, todayDate)).map((meal) => (
                 <div key={meal.value} className="flex items-center gap-2.5 p-2.5 lg:p-3 bg-gray-50 opacity-60">
                   <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-200 border border-gray-300">
@@ -601,7 +661,7 @@ export default function MealSchedulePage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="font-bold text-gray-500 text-xs lg:text-sm">{meal.label}</h4>
-                    <p className="text-[10px] lg:text-xs text-gray-400">{meal.time}</p>
+                    <p className="text-[10px] lg:text-xs text-gray-400">{getMealTimeDisplay(meal.value)}</p>
                   </div>
                   <span className="text-[9px] lg:text-[10px] bg-gray-300 text-gray-600 px-2 py-1 rounded-md font-bold">
                     Off
@@ -613,7 +673,7 @@ export default function MealSchedulePage() {
         </div>
       </div>
 
-      {/* Modern Weekly Schedule - Ultra Flat */}
+      {/* Weekly Schedule */}
       <div className="bg-white border border-gray-200">
         <div className="px-2.5 py-2 lg:px-3 lg:py-2.5 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
           <h2 className="font-bold text-gray-900 text-[11px] lg:text-xs flex items-center gap-1.5">
@@ -643,7 +703,7 @@ export default function MealSchedulePage() {
                   </div>
                   <div>
                     <p className="font-bold text-gray-900 text-[10px] lg:text-[11px]">{meal.label}</p>
-                    <p className="text-[8px] lg:text-[9px] text-gray-500">{meal.time}</p>
+                    <p className="text-[8px] lg:text-[9px] text-gray-500">{getMealTimeDisplay(meal.value)}</p>
                   </div>
                 </div>
                 <div className="flex gap-1 flex-wrap">
@@ -669,11 +729,10 @@ export default function MealSchedulePage() {
         </div>
       </div>
 
-      {/* Modern Meal Preferences Modal - Compact Mobile First */}
+      {/* Meal Preferences Modal */}
       {showSelectionModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 lg:p-4">
           <div className="bg-white rounded-lg lg:rounded-xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-xl flex flex-col">
-            {/* Compact Modal Header */}
             <div className="p-3 lg:p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0 bg-gradient-to-r from-indigo-50 to-purple-50">
               <div>
                 <h3 className="font-bold text-sm lg:text-base text-gray-900">Manage Meal Preferences</h3>
@@ -689,7 +748,6 @@ export default function MealSchedulePage() {
               </button>
             </div>
 
-            {/* Compact Modal Content */}
             <div className="flex-1 overflow-y-auto p-3 lg:p-4">
               <div className="space-y-2.5">
                 {selectableDates.map((date, index) => {
@@ -698,10 +756,8 @@ export default function MealSchedulePage() {
                   const daySelection = selections[dateStr] || {};
                   const availableMealsForDay = enabledMeals.filter(meal => isMealAvailableOnDate(meal.value, date));
 
-                  // Skip days with no available meals
                   if (availableMealsForDay.length === 0) return null;
 
-                  // Count selected meals
                   let selectedCount = 0;
                   availableMealsForDay.forEach(meal => {
                     if (daySelection[meal.value] !== false) selectedCount++;
@@ -717,7 +773,6 @@ export default function MealSchedulePage() {
                           : 'bg-white border-gray-200'
                       }`}
                     >
-                      {/* Compact Date Header */}
                       <div className="flex items-center justify-between p-2.5 lg:p-3 border-b border-gray-100">
                         <div className="flex items-center gap-2">
                           <div className={`w-8 h-8 lg:w-9 lg:h-9 rounded-md flex items-center justify-center ${
@@ -745,7 +800,6 @@ export default function MealSchedulePage() {
                         </button>
                       </div>
 
-                      {/* Compact Meal Toggles - List Style */}
                       <div className="divide-y divide-gray-100">
                         {availableMealsForDay.map((meal) => {
                           const isSelected = daySelection[meal.value] !== false;
@@ -763,7 +817,6 @@ export default function MealSchedulePage() {
                                 onChange={() => toggleMeal(dateStr, meal.value)}
                                 className="sr-only"
                               />
-                              {/* Checkbox Icon */}
                               <div
                                 className={`w-5 h-5 lg:w-6 lg:h-6 rounded flex items-center justify-center flex-shrink-0 transition-all ${
                                   isSelected ? 'bg-green-500' : 'bg-red-500'
@@ -779,7 +832,6 @@ export default function MealSchedulePage() {
                                   </svg>
                                 )}
                               </div>
-                              {/* Meal Icon */}
                               <div
                                 className="w-7 h-7 lg:w-8 lg:h-8 rounded-md flex items-center justify-center flex-shrink-0 border"
                                 style={{ backgroundColor: `${meal.color}15`, borderColor: `${meal.color}40` }}
@@ -788,12 +840,10 @@ export default function MealSchedulePage() {
                                   {meal.label.charAt(0)}
                                 </span>
                               </div>
-                              {/* Meal Info */}
                               <div className="flex-1 min-w-0">
                                 <p className="font-bold text-gray-900 text-[11px] lg:text-xs">{meal.label}</p>
-                                <p className="text-[9px] lg:text-[10px] text-gray-500">{meal.time}</p>
+                                <p className="text-[9px] lg:text-[10px] text-gray-500">{getMealTimeDisplay(meal.value)}</p>
                               </div>
-                              {/* Status Badge */}
                               <span className={`text-[9px] lg:text-[10px] font-bold px-2 py-0.5 rounded-md ${
                                 isSelected ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'
                               }`}>
@@ -809,7 +859,6 @@ export default function MealSchedulePage() {
               </div>
             </div>
 
-            {/* Compact Modal Footer */}
             <div className="p-3 lg:p-4 border-t border-gray-100 flex gap-2 lg:gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowSelectionModal(false)}
@@ -845,7 +894,6 @@ export default function MealSchedulePage() {
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-            {/* Modal Header */}
             <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
               <div>
                 <h3 className="font-bold text-lg text-gray-900">Meal History</h3>
@@ -861,9 +909,7 @@ export default function MealSchedulePage() {
               </button>
             </div>
 
-            {/* Filters */}
             <div className="p-4 border-b border-gray-100 space-y-3 flex-shrink-0">
-              {/* Status Filter */}
               <div>
                 <label className="text-xs font-semibold text-gray-700 mb-2 block">Status</label>
                 <div className="flex gap-2 flex-wrap">
@@ -889,7 +935,6 @@ export default function MealSchedulePage() {
                 </div>
               </div>
 
-              {/* Meal Type Filter */}
               <div>
                 <label className="text-xs font-semibold text-gray-700 mb-2 block">Meal Type</label>
                 <div className="flex gap-2 flex-wrap">
@@ -915,21 +960,16 @@ export default function MealSchedulePage() {
               </div>
             </div>
 
-            {/* Modal Content */}
             <div className="flex-1 overflow-y-auto p-5">
               {(() => {
-                // Filter history based on selected filters
                 let filteredHistory = mealHistory;
-
                 if (historyFilter !== 'all') {
                   filteredHistory = filteredHistory.filter((token) => token.status === historyFilter);
                 }
-
                 if (historyMealFilter !== 'all') {
                   filteredHistory = filteredHistory.filter((token) => token.meal_type === historyMealFilter);
                 }
 
-                // Group by date
                 const groupedByDate = filteredHistory.reduce((acc, token) => {
                   const date = token.token_date;
                   if (!acc[date]) acc[date] = [];
@@ -937,7 +977,6 @@ export default function MealSchedulePage() {
                   return acc;
                 }, {});
 
-                // Sort dates in descending order
                 const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b) - new Date(a));
 
                 if (sortedDates.length === 0) {
@@ -962,7 +1001,6 @@ export default function MealSchedulePage() {
 
                       return (
                         <div key={date} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                          {/* Date Header */}
                           <div className="flex items-center gap-2 mb-3">
                             <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
                               <span className="text-sm font-bold text-white">{dateObj.getDate()}</span>
@@ -975,7 +1013,6 @@ export default function MealSchedulePage() {
                             </div>
                           </div>
 
-                          {/* Meals for this date */}
                           <div className="space-y-2">
                             {tokens.map((token) => {
                               const meal = MEAL_TYPES.find((m) => m.value === token.meal_type.toLowerCase());
@@ -1028,7 +1065,6 @@ export default function MealSchedulePage() {
               })()}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-5 border-t border-gray-100 flex justify-end flex-shrink-0">
               <button
                 onClick={() => setShowHistoryModal(false)}
