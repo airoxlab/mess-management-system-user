@@ -72,6 +72,36 @@ export async function POST(request) {
       );
     }
 
+    // Get member's organization_id
+    const memberTableMap = {
+      student: 'student_members',
+      faculty: 'faculty_members',
+      staff: 'staff_members',
+    };
+
+    const memberTable = memberTableMap[memberType];
+    if (!memberTable) {
+      return NextResponse.json(
+        { error: 'Invalid member type' },
+        { status: 400 }
+      );
+    }
+
+    const { data: memberData, error: memberError } = await supabase
+      .from(memberTable)
+      .select('organization_id')
+      .eq('id', memberId)
+      .single();
+
+    if (memberError || !memberData) {
+      return NextResponse.json(
+        { error: 'Member not found' },
+        { status: 404 }
+      );
+    }
+
+    const organizationId = memberData.organization_id;
+
     // Process each selection (upsert)
     const results = [];
     for (const selection of selections) {
@@ -103,12 +133,13 @@ export async function POST(request) {
         if (error) throw error;
         results.push(data);
       } else {
-        // Insert new
+        // Insert new with organization_id
         const { data, error } = await supabase
           .from('meal_selections')
           .insert({
             member_id: memberId,
             member_type: memberType,
+            organization_id: organizationId,
             date: date,
             breakfast_needed: breakfast,
             lunch_needed: lunch,

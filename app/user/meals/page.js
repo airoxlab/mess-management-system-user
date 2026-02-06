@@ -15,6 +15,10 @@ export default function MealSchedulePage() {
   const [saving, setSaving] = useState(false);
   const [todayTokens, setTodayTokens] = useState([]);
   const [skipping, setSkipping] = useState(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [mealHistory, setMealHistory] = useState([]);
+  const [historyFilter, setHistoryFilter] = useState('all'); // all, collected, pending, cancelled, missed
+  const [historyMealFilter, setHistoryMealFilter] = useState('all'); // all, breakfast, lunch, dinner
 
   // Generate next 14 days for selection
   const generateDates = () => {
@@ -57,6 +61,29 @@ export default function MealSchedulePage() {
     return mealDays.map(d => d.toLowerCase()).includes(dayName);
   };
 
+  const fetchMealHistory = useCallback(async () => {
+    if (!memberData?.id) return;
+
+    try {
+      // Fetch last 30 days of meal history
+      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      const startDateStr = startDate.toISOString().split('T')[0];
+
+      const tokensRes = await fetch(
+        `/api/meal-tokens?memberId=${memberData.id}&startDate=${startDateStr}&endDate=${endDate}`
+      );
+
+      if (tokensRes.ok) {
+        const tokensData = await tokensRes.json();
+        setMealHistory(tokensData.tokens || []);
+      }
+    } catch (error) {
+      console.log('Error fetching meal history:', error);
+    }
+  }, [memberData?.id]);
+
   const fetchData = useCallback(async () => {
     if (!memberData?.id) return;
 
@@ -94,13 +121,16 @@ export default function MealSchedulePage() {
 
       // Fetch existing meal selections
       await fetchSelections();
+
+      // Fetch meal history
+      await fetchMealHistory();
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [memberData?.id, memberType]);
+  }, [memberData?.id, memberType, fetchMealHistory]);
 
   useEffect(() => {
     if (memberData?.id) {
@@ -120,6 +150,7 @@ export default function MealSchedulePage() {
           (payload) => {
             console.log('Token update:', payload.eventType);
             fetchData();
+            fetchMealHistory(); // Update history in real-time
           }
         )
         .on(
@@ -154,7 +185,7 @@ export default function MealSchedulePage() {
         supabase.removeChannel(channel);
       };
     }
-  }, [memberData?.id, fetchData]);
+  }, [memberData?.id, fetchData, fetchMealHistory]);
 
   const fetchSelections = async () => {
     if (!memberData?.id) return;
@@ -188,14 +219,18 @@ export default function MealSchedulePage() {
     }
   };
 
-  // Skip a meal for today (saves to backend)
-  const handleSkipMeal = async (mealType) => {
+  // Toggle a meal for today (skip/want - saves to backend)
+  const handleToggleMeal = async (mealType) => {
     try {
       setSkipping(mealType);
 
       const today = new Date().toISOString().split('T')[0];
 
-      // First, update the selection
+      // Check current state
+      const currentState = selections[today]?.[mealType] !== false;
+      const newState = !currentState; // Toggle the state
+
+      // Update the selection
       const response = await fetch('/api/meal-selections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -204,9 +239,9 @@ export default function MealSchedulePage() {
           memberType: memberType,
           selections: [{
             date: today,
-            breakfast: mealType === 'breakfast' ? false : selections[today]?.breakfast ?? true,
-            lunch: mealType === 'lunch' ? false : selections[today]?.lunch ?? true,
-            dinner: mealType === 'dinner' ? false : selections[today]?.dinner ?? true,
+            breakfast: mealType === 'breakfast' ? newState : selections[today]?.breakfast ?? true,
+            lunch: mealType === 'lunch' ? newState : selections[today]?.lunch ?? true,
+            dinner: mealType === 'dinner' ? newState : selections[today]?.dinner ?? true,
           }],
         }),
       });
@@ -217,36 +252,42 @@ export default function MealSchedulePage() {
           ...prev,
           [today]: {
             ...prev[today],
-            [mealType]: false,
+            [mealType]: newState,
           },
         }));
 
-        // Also try to skip the token if it exists
-        try {
-          await fetch('/api/meal-tokens/skip', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              memberId: memberData.id,
-              memberType: memberType,
-              date: today,
-              mealType: mealType.toUpperCase(),
-              action: 'skip',
-            }),
-          });
-        } catch (skipError) {
-          // Token might not exist yet, that's okay
-          console.log('Token skip skipped:', skipError);
+        // If toggling to skip (false), also try to skip the token if it exists
+        if (!newState) {
+          try {
+            await fetch('/api/meal-tokens/skip', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                memberId: memberData.id,
+                memberType: memberType,
+                date: today,
+                mealType: mealType.toUpperCase(),
+                action: 'skip',
+              }),
+            });
+          } catch (skipError) {
+            // Token might not exist yet, that's okay
+            console.log('Token skip skipped:', skipError);
+          }
         }
 
-        toast.success(`${mealType.charAt(0).toUpperCase() + mealType.slice(1)} skipped for today`);
-        fetchData(); // Refresh data
+        toast.success(
+          newState
+            ? `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} marked as wanted`
+            : `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} skipped for today`
+        );
+        // Don't call fetchData() - let real-time subscription handle updates
       } else {
-        toast.error('Failed to skip meal');
+        toast.error('Failed to update meal');
       }
     } catch (error) {
-      console.error('Error skipping meal:', error);
-      toast.error('Failed to skip meal');
+      console.error('Error toggling meal:', error);
+      toast.error('Failed to update meal');
     } finally {
       setSkipping(null);
     }
@@ -383,31 +424,46 @@ export default function MealSchedulePage() {
   }
 
   return (
-    <div className="space-y-6 pb-6">
-      {/* Header with Remaining Meals */}
-      <div className="bg-gradient-to-r from-primary-600 to-emerald-500 rounded-2xl p-5 text-white shadow-lg">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-xl font-bold">My Meals</h1>
-            <p className="text-white/80 text-sm mt-1">{formatDate(todayDate, 'EEEE, MMMM d, yyyy')}</p>
-          </div>
-          <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center">
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+    <div className="space-y-3 pb-6">
+      {/* Modern Flat Header - Ultra Compact */}
+      <div className="bg-white border border-gray-200">
+        {/* Top Bar - Minimal */}
+        <div className="flex items-center justify-between p-2.5 lg:p-3 bg-gradient-to-r from-indigo-50 to-purple-50">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 lg:w-9 lg:h-9 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
+              <svg className="w-4 h-4 lg:w-4.5 lg:h-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-sm lg:text-base font-bold text-gray-900">My Meals</h1>
+              <p className="text-[9px] lg:text-[10px] text-gray-500">{formatDate(todayDate, 'EEEE, MMM d')}</p>
+            </div>
           </div>
         </div>
 
-        {/* Remaining Meals Summary */}
+        {/* Inline Meal Stats - Compact Pills */}
         {memberPackage && (
-          <div className="grid grid-cols-3 gap-2">
-            {enabledMeals.map((meal) => {
-              const stats = memberPackage.tokenStats?.[meal.value] || { collected: 0, total: 0 };
-              const remaining = stats.total - stats.collected;
+          <div className="flex items-center gap-1.5 px-2.5 py-2 lg:px-3 lg:py-2.5 border-t border-gray-100 overflow-x-auto">
+            {MEAL_TYPES.map((meal) => {
+              const isEnabled = memberPackage[`${meal.value}_enabled`];
+              const stats = memberPackage.mealStats?.[meal.value] || { consumed: 0, total: 0, remaining: 0 };
               return (
-                <div key={meal.value} className="bg-white/20 rounded-lg p-2 text-center">
-                  <p className="text-lg font-bold">{remaining}</p>
-                  <p className="text-[10px] text-white/80">{meal.label} Left</p>
+                <div
+                  key={meal.value}
+                  className={`flex items-center gap-1 px-2 py-1 lg:px-2.5 lg:py-1.5 rounded-md flex-shrink-0 border ${
+                    isEnabled && stats.remaining > 0
+                      ? 'bg-white border-gray-200'
+                      : 'bg-gray-50 border-gray-200 opacity-50'
+                  }`}
+                >
+                  <span className="text-[10px] lg:text-xs font-bold" style={{ color: isEnabled ? meal.color : '#9ca3af' }}>
+                    {meal.label.charAt(0)}:
+                  </span>
+                  <span className={`text-xs lg:text-sm font-extrabold ${isEnabled && stats.remaining > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                    {stats.remaining}
+                  </span>
+                  <span className="text-[8px] lg:text-[9px] text-gray-500">left</span>
                 </div>
               );
             })}
@@ -415,49 +471,61 @@ export default function MealSchedulePage() {
         )}
       </div>
 
-      {/* Meal Selection Button */}
-      <button
-        onClick={() => setShowSelectionModal(true)}
-        className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all flex items-center justify-between"
-      >
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {/* Compact Action Buttons - Modern Flat */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => setShowSelectionModal(true)}
+          className="bg-white border border-indigo-200 p-2 lg:p-2.5 hover:bg-indigo-50 transition-all flex items-center gap-2"
+        >
+          <div className="w-7 h-7 lg:w-8 lg:h-8 bg-indigo-600 rounded-md flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
             </svg>
           </div>
-          <div className="text-left">
-            <h3 className="font-bold text-gray-900">Manage Meal Preferences</h3>
-            <p className="text-sm text-gray-500">Skip meals for today or upcoming days</p>
+          <div className="text-left flex-1 min-w-0">
+            <h3 className="font-bold text-gray-900 text-[11px] lg:text-xs truncate">Skip Meals</h3>
+            <p className="text-[9px] lg:text-[10px] text-gray-500 truncate">Manage days</p>
           </div>
-        </div>
-        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
+        </button>
 
-      {/* Today's Meals Availability */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-          <h2 className="font-bold text-gray-900 flex items-center gap-2">
-            <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
+        <button
+          onClick={() => setShowHistoryModal(true)}
+          className="bg-white border border-green-200 p-2 lg:p-2.5 hover:bg-green-50 transition-all flex items-center gap-2"
+        >
+          <div className="w-7 h-7 lg:w-8 lg:h-8 bg-green-600 rounded-md flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+          </div>
+          <div className="text-left flex-1 min-w-0">
+            <h3 className="font-bold text-gray-900 text-[11px] lg:text-xs truncate">History</h3>
+            <p className="text-[9px] lg:text-[10px] text-gray-500 truncate">View past meals</p>
+          </div>
+        </button>
+      </div>
+
+      {/* Modern Today's Meals - Flat Design */}
+      <div className="bg-white border border-gray-200">
+        <div className="px-3 py-2.5 lg:px-4 lg:py-3 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50">
+          <h2 className="font-bold text-gray-900 text-xs lg:text-sm flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
             Today&apos;s Meals
           </h2>
         </div>
 
-        <div className="p-5">
+        <div className="divide-y divide-gray-100">
           {availableMealsToday.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="text-center py-8 px-4">
+              <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-2">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-700">No Meals Today</h3>
-              <p className="text-gray-500 mt-1 text-sm">No meals are scheduled for today based on your package.</p>
+              <h3 className="text-xs lg:text-sm font-semibold text-gray-700">No Meals Today</h3>
+              <p className="text-[10px] lg:text-xs text-gray-500 mt-0.5">No meals scheduled for today.</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <>
               {availableMealsToday.map((meal) => {
                 const isSelected = selections[todayStr]?.[meal.value] !== false;
                 const tokenStatus = getTodayMealStatus(meal.value);
@@ -465,151 +533,128 @@ export default function MealSchedulePage() {
                 const isCancelled = tokenStatus === 'CANCELLED' || tokenStatus === 'SKIPPED';
 
                 return (
-                  <div
-                    key={meal.value}
-                    className={`p-4 rounded-xl border transition-all ${
-                      isCollected
-                        ? 'bg-green-50 border-green-200'
-                        : isCancelled || !isSelected
-                        ? 'bg-red-50 border-red-100'
-                        : 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-4">
+                  <div key={meal.value} className="p-2.5 lg:p-3 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-2.5">
+                      {/* Icon - Ultra Compact */}
                       <div
-                        className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: isCollected ? '#dcfce7' : isSelected ? `${meal.color}20` : '#fee2e2' }}
+                        className="w-9 h-9 lg:w-10 lg:h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{
+                          backgroundColor: isCollected ? '#dcfce7' : isSelected ? `${meal.color}15` : '#fee2e2',
+                          border: `1.5px solid ${isCollected ? '#86efac' : isSelected ? meal.color + '40' : '#fecaca'}`
+                        }}
                       >
-                        <span className="text-2xl font-bold" style={{ color: isCollected ? '#22c55e' : isSelected ? meal.color : '#ef4444' }}>
+                        <span className="text-base lg:text-lg font-bold" style={{ color: isCollected ? '#22c55e' : isSelected ? meal.color : '#ef4444' }}>
                           {meal.label.charAt(0)}
                         </span>
                       </div>
-                      <div className="flex-1">
-                        <h4 className="font-bold text-gray-900">{meal.label}</h4>
-                        <p className="text-sm text-gray-500">{meal.time}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {/* Status Badge */}
-                        {isCollected ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-500 text-white text-xs font-semibold rounded-full">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                            Collected
-                          </span>
-                        ) : isCancelled || !isSelected ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white text-xs font-semibold rounded-full">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                            Skipped
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-full">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Waiting
-                          </span>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Skip Button - Only show if not already collected or skipped */}
-                    {!isCollected && !isCancelled && isSelected && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <button
-                          onClick={() => handleSkipMeal(meal.value)}
-                          disabled={skipping === meal.value}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-semibold text-sm hover:bg-red-100 hover:text-red-700 transition-colors disabled:opacity-50"
-                        >
-                          {skipping === meal.value ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                              Skipping...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                              Skip This Meal
-                            </>
-                          )}
-                        </button>
+                      {/* Info - Compact */}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-gray-900 text-xs lg:text-sm">{meal.label}</h4>
+                        <p className="text-[10px] lg:text-xs text-gray-500">{meal.time}</p>
                       </div>
-                    )}
+
+                      {/* Toggle Switch - Modern */}
+                      {!isCollected && (
+                        <button
+                          onClick={() => handleToggleMeal(meal.value)}
+                          disabled={skipping === meal.value}
+                          className={`relative inline-flex h-6 w-11 lg:h-7 lg:w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 flex-shrink-0 ${
+                            isSelected && !isCancelled ? 'bg-green-500' : 'bg-gray-300'
+                          }`}
+                          title={isSelected && !isCancelled ? 'Click to skip' : 'Click to want'}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 lg:h-5 lg:w-5 transform rounded-full bg-white shadow-lg transition-transform ${
+                              isSelected && !isCancelled ? 'translate-x-6 lg:translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      )}
+
+                      {/* Status Badge - Modern */}
+                      {isCollected ? (
+                        <span className="text-[9px] lg:text-[10px] bg-green-600 text-white px-2 py-1 rounded-md font-bold flex-shrink-0">
+                          Done
+                        </span>
+                      ) : isCancelled || !isSelected ? (
+                        <span className="text-[9px] lg:text-[10px] bg-red-600 text-white px-2 py-1 rounded-md font-bold flex-shrink-0">
+                          Skipped
+                        </span>
+                      ) : (
+                        <span className="text-[9px] lg:text-[10px] bg-amber-600 text-white px-2 py-1 rounded-md font-bold flex-shrink-0">
+                          Available
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
 
-              {/* Show unavailable meals greyed out */}
+              {/* Unavailable meals - Compact */}
               {enabledMeals.filter(meal => !isMealAvailableOnDate(meal.value, todayDate)).map((meal) => (
-                <div
-                  key={meal.value}
-                  className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100 opacity-50"
-                >
-                  <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-200">
-                    <span className="text-2xl font-bold text-gray-400">
+                <div key={meal.value} className="flex items-center gap-2.5 p-2.5 lg:p-3 bg-gray-50 opacity-60">
+                  <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-200 border border-gray-300">
+                    <span className="text-base lg:text-lg font-bold text-gray-400">
                       {meal.label.charAt(0)}
                     </span>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-gray-500">{meal.label}</h4>
-                    <p className="text-sm text-gray-400">{meal.time}</p>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-bold text-gray-500 text-xs lg:text-sm">{meal.label}</h4>
+                    <p className="text-[10px] lg:text-xs text-gray-400">{meal.time}</p>
                   </div>
-                  <span className="px-3 py-1.5 bg-gray-200 text-gray-500 text-xs font-semibold rounded-full">
-                    Not Today
+                  <span className="text-[9px] lg:text-[10px] bg-gray-300 text-gray-600 px-2 py-1 rounded-md font-bold">
+                    Off
                   </span>
                 </div>
               ))}
-            </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* Meal Schedule */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-          <h2 className="font-bold text-gray-900 flex items-center gap-2">
-            <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {/* Modern Weekly Schedule - Ultra Flat */}
+      <div className="bg-white border border-gray-200">
+        <div className="px-2.5 py-2 lg:px-3 lg:py-2.5 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <h2 className="font-bold text-gray-900 text-[11px] lg:text-xs flex items-center gap-1.5">
+            <svg className="w-3 h-3 lg:w-3.5 lg:h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
             Weekly Schedule
           </h2>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-2.5 lg:p-3 space-y-2">
           {enabledMeals.map((meal) => {
             const days = memberPackage[`${meal.value}_days`] || [];
             const allDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
             const fullDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
             return (
-              <div key={meal.value} className="p-4 bg-gray-50 rounded-xl">
-                <div className="flex items-center gap-3 mb-3">
+              <div key={meal.value} className="p-2 bg-gray-50 border border-gray-200 rounded-md">
+                <div className="flex items-center gap-1.5 mb-1.5">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{ backgroundColor: `${meal.color}20` }}
+                    className="w-6 h-6 lg:w-7 lg:h-7 rounded-md flex items-center justify-center border"
+                    style={{ backgroundColor: `${meal.color}15`, borderColor: `${meal.color}40` }}
                   >
-                    <span className="text-lg font-bold" style={{ color: meal.color }}>
+                    <span className="text-[10px] lg:text-xs font-bold" style={{ color: meal.color }}>
                       {meal.label.charAt(0)}
                     </span>
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-900">{meal.label}</p>
-                    <p className="text-xs text-gray-500">{meal.time}</p>
+                    <p className="font-bold text-gray-900 text-[10px] lg:text-[11px]">{meal.label}</p>
+                    <p className="text-[8px] lg:text-[9px] text-gray-500">{meal.time}</p>
                   </div>
                 </div>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-1 flex-wrap">
                   {allDays.map((day, idx) => {
                     const isActive = days.length === 0 || days.map(d => d.toLowerCase()).includes(fullDays[idx].toLowerCase());
                     return (
                       <span
                         key={day}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
+                        className={`px-1.5 py-0.5 text-[8px] lg:text-[9px] font-bold rounded-sm ${
                           isActive
-                            ? 'bg-primary-500 text-white'
+                            ? 'bg-indigo-600 text-white'
                             : 'bg-gray-200 text-gray-400'
                         }`}
                       >
@@ -624,29 +669,29 @@ export default function MealSchedulePage() {
         </div>
       </div>
 
-      {/* Meal Selection Modal */}
+      {/* Modern Meal Preferences Modal - Compact Mobile First */}
       {showSelectionModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 lg:p-4">
+          <div className="bg-white rounded-lg lg:rounded-xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-xl flex flex-col">
+            {/* Compact Modal Header */}
+            <div className="p-3 lg:p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0 bg-gradient-to-r from-indigo-50 to-purple-50">
               <div>
-                <h3 className="font-bold text-lg text-gray-900">Manage Meal Preferences</h3>
-                <p className="text-sm text-gray-500 mt-1">Select which meals you want for each day</p>
+                <h3 className="font-bold text-sm lg:text-base text-gray-900">Manage Meal Preferences</h3>
+                <p className="text-[10px] lg:text-xs text-gray-500 mt-0.5">Select meals for each day</p>
               </div>
               <button
                 onClick={() => setShowSelectionModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-white/50 rounded-md transition-colors"
               >
-                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 lg:w-5 lg:h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto p-5">
-              <div className="space-y-4">
+            {/* Compact Modal Content */}
+            <div className="flex-1 overflow-y-auto p-3 lg:p-4">
+              <div className="space-y-2.5">
                 {selectableDates.map((date, index) => {
                   const dateStr = date.toISOString().split('T')[0];
                   const isToday = index === 0;
@@ -666,31 +711,31 @@ export default function MealSchedulePage() {
                   return (
                     <div
                       key={dateStr}
-                      className={`p-4 rounded-xl border transition-all ${
+                      className={`border ${
                         isToday
                           ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'
                           : 'bg-white border-gray-200'
                       }`}
                     >
-                      {/* Date Header */}
-                      <div className="flex items-center justify-between mb-3">
+                      {/* Compact Date Header */}
+                      <div className="flex items-center justify-between p-2.5 lg:p-3 border-b border-gray-100">
                         <div className="flex items-center gap-2">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                          <div className={`w-8 h-8 lg:w-9 lg:h-9 rounded-md flex items-center justify-center ${
                             isToday ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
                           }`}>
-                            <span className="text-sm font-bold">{date.getDate()}</span>
+                            <span className="text-xs lg:text-sm font-bold">{date.getDate()}</span>
                           </div>
                           <div>
-                            <p className="font-semibold text-gray-900">
+                            <p className="font-bold text-xs lg:text-sm text-gray-900">
                               {formatDate(date, 'EEEE')}
-                              {isToday && <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">Today</span>}
+                              {isToday && <span className="ml-1.5 text-[9px] lg:text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">Today</span>}
                             </p>
-                            <p className="text-xs text-gray-500">{formatDate(date, 'MMM d, yyyy')}</p>
+                            <p className="text-[9px] lg:text-[10px] text-gray-500">{formatDate(date, 'MMM d, yyyy')}</p>
                           </div>
                         </div>
                         <button
                           onClick={() => toggleAllMealsForDate(dateStr, date, !allSelected)}
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                          className={`px-2.5 py-1 lg:px-3 lg:py-1.5 text-[10px] lg:text-xs font-bold rounded-md transition-colors ${
                             allSelected
                               ? 'bg-red-100 text-red-700 hover:bg-red-200'
                               : 'bg-green-100 text-green-700 hover:bg-green-200'
@@ -700,18 +745,16 @@ export default function MealSchedulePage() {
                         </button>
                       </div>
 
-                      {/* Meal Toggles */}
-                      <div className="space-y-2">
+                      {/* Compact Meal Toggles - List Style */}
+                      <div className="divide-y divide-gray-100">
                         {availableMealsForDay.map((meal) => {
                           const isSelected = daySelection[meal.value] !== false;
 
                           return (
                             <label
                               key={meal.value}
-                              className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${
-                                isSelected
-                                  ? 'bg-green-50 border border-green-200'
-                                  : 'bg-red-50 border border-red-200'
+                              className={`flex items-center gap-2.5 p-2.5 lg:p-3 cursor-pointer transition-all hover:bg-gray-50 ${
+                                isSelected ? 'bg-green-50/50' : 'bg-red-50/50'
                               }`}
                             >
                               <input
@@ -720,37 +763,39 @@ export default function MealSchedulePage() {
                                 onChange={() => toggleMeal(dateStr, meal.value)}
                                 className="sr-only"
                               />
+                              {/* Checkbox Icon */}
                               <div
-                                className={`w-6 h-6 rounded-md flex items-center justify-center transition-all ${
-                                  isSelected
-                                    ? 'bg-green-500'
-                                    : 'bg-red-500'
+                                className={`w-5 h-5 lg:w-6 lg:h-6 rounded flex items-center justify-center flex-shrink-0 transition-all ${
+                                  isSelected ? 'bg-green-500' : 'bg-red-500'
                                 }`}
                               >
                                 {isSelected ? (
-                                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                  <svg className="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                   </svg>
                                 ) : (
-                                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <svg className="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                   </svg>
                                 )}
                               </div>
+                              {/* Meal Icon */}
                               <div
-                                className="w-8 h-8 rounded-lg flex items-center justify-center"
-                                style={{ backgroundColor: `${meal.color}20` }}
+                                className="w-7 h-7 lg:w-8 lg:h-8 rounded-md flex items-center justify-center flex-shrink-0 border"
+                                style={{ backgroundColor: `${meal.color}15`, borderColor: `${meal.color}40` }}
                               >
-                                <span className="text-sm font-bold" style={{ color: meal.color }}>
+                                <span className="text-xs lg:text-sm font-bold" style={{ color: meal.color }}>
                                   {meal.label.charAt(0)}
                                 </span>
                               </div>
-                              <div className="flex-1">
-                                <p className="font-medium text-gray-900 text-sm">{meal.label}</p>
-                                <p className="text-xs text-gray-500">{meal.time}</p>
+                              {/* Meal Info */}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-gray-900 text-[11px] lg:text-xs">{meal.label}</p>
+                                <p className="text-[9px] lg:text-[10px] text-gray-500">{meal.time}</p>
                               </div>
-                              <span className={`text-xs font-semibold ${
-                                isSelected ? 'text-green-600' : 'text-red-600'
+                              {/* Status Badge */}
+                              <span className={`text-[9px] lg:text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                isSelected ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'
                               }`}>
                                 {isSelected ? 'Wanted' : 'Skipped'}
                               </span>
@@ -764,32 +809,232 @@ export default function MealSchedulePage() {
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="p-5 border-t border-gray-100 flex gap-3 flex-shrink-0">
+            {/* Compact Modal Footer */}
+            <div className="p-3 lg:p-4 border-t border-gray-100 flex gap-2 lg:gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowSelectionModal(false)}
-                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                className="flex-1 px-3 py-2 lg:px-4 lg:py-2.5 bg-gray-100 text-gray-700 rounded-md lg:rounded-lg text-xs lg:text-sm font-bold hover:bg-gray-200 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveSelections}
                 disabled={saving}
-                className="flex-1 px-4 py-3 bg-primary-500 text-white rounded-xl font-semibold hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="flex-1 px-3 py-2 lg:px-4 lg:py-2.5 bg-green-600 text-white rounded-md lg:rounded-lg text-xs lg:text-sm font-bold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
               >
                 {saving ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     Saving...
                   </>
                 ) : (
                   <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5 lg:w-4 lg:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     Save Preferences
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meal History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-bold text-lg text-gray-900">Meal History</h3>
+                <p className="text-sm text-gray-500 mt-1">Last 30 days of meal activity</p>
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Filters */}
+            <div className="p-4 border-b border-gray-100 space-y-3 flex-shrink-0">
+              {/* Status Filter */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 mb-2 block">Status</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { value: 'all', label: 'All', color: 'bg-gray-100 text-gray-700' },
+                    { value: 'COLLECTED', label: 'Collected', color: 'bg-green-100 text-green-700' },
+                    { value: 'PENDING', label: 'Pending', color: 'bg-amber-100 text-amber-700' },
+                    { value: 'CANCELLED', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
+                    { value: 'EXPIRED', label: 'Missed', color: 'bg-gray-100 text-gray-700' },
+                  ].map((filter) => (
+                    <button
+                      key={filter.value}
+                      onClick={() => setHistoryFilter(filter.value)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                        historyFilter === filter.value
+                          ? filter.color + ' ring-2 ring-offset-1 ring-current'
+                          : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Meal Type Filter */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 mb-2 block">Meal Type</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { value: 'all', label: 'All Meals' },
+                    { value: 'BREAKFAST', label: 'Breakfast' },
+                    { value: 'LUNCH', label: 'Lunch' },
+                    { value: 'DINNER', label: 'Dinner' },
+                  ].map((filter) => (
+                    <button
+                      key={filter.value}
+                      onClick={() => setHistoryMealFilter(filter.value)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                        historyMealFilter === filter.value
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {(() => {
+                // Filter history based on selected filters
+                let filteredHistory = mealHistory;
+
+                if (historyFilter !== 'all') {
+                  filteredHistory = filteredHistory.filter((token) => token.status === historyFilter);
+                }
+
+                if (historyMealFilter !== 'all') {
+                  filteredHistory = filteredHistory.filter((token) => token.meal_type === historyMealFilter);
+                }
+
+                // Group by date
+                const groupedByDate = filteredHistory.reduce((acc, token) => {
+                  const date = token.token_date;
+                  if (!acc[date]) acc[date] = [];
+                  acc[date].push(token);
+                  return acc;
+                }, {});
+
+                // Sort dates in descending order
+                const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b) - new Date(a));
+
+                if (sortedDates.length === 0) {
+                  return (
+                    <div className="text-center py-12">
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                        </svg>
+                      </div>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-1">No Results</h3>
+                      <p className="text-xs text-gray-500">No meal history found with the selected filters.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {sortedDates.map((date) => {
+                      const tokens = groupedByDate[date];
+                      const dateObj = new Date(date);
+
+                      return (
+                        <div key={date} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                          {/* Date Header */}
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
+                              <span className="text-sm font-bold text-white">{dateObj.getDate()}</span>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900 text-sm">
+                                {formatDate(dateObj, 'EEEE')}
+                              </p>
+                              <p className="text-xs text-gray-500">{formatDate(dateObj, 'MMM d, yyyy')}</p>
+                            </div>
+                          </div>
+
+                          {/* Meals for this date */}
+                          <div className="space-y-2">
+                            {tokens.map((token) => {
+                              const meal = MEAL_TYPES.find((m) => m.value === token.meal_type.toLowerCase());
+                              const statusConfig = {
+                                COLLECTED: { bg: 'bg-green-50', border: 'border-green-200', badge: 'bg-green-600', text: 'Collected' },
+                                PENDING: { bg: 'bg-amber-50', border: 'border-amber-200', badge: 'bg-amber-600', text: 'Pending' },
+                                CANCELLED: { bg: 'bg-red-50', border: 'border-red-200', badge: 'bg-red-600', text: 'Cancelled' },
+                                SKIPPED: { bg: 'bg-red-50', border: 'border-red-200', badge: 'bg-red-600', text: 'Skipped' },
+                                EXPIRED: { bg: 'bg-gray-50', border: 'border-gray-200', badge: 'bg-gray-600', text: 'Missed' },
+                              };
+
+                              const status = statusConfig[token.status] || statusConfig.PENDING;
+
+                              return (
+                                <div
+                                  key={token.id}
+                                  className={`flex items-center gap-3 p-3 rounded-lg border ${status.bg} ${status.border}`}
+                                >
+                                  {meal && (
+                                    <div
+                                      className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                                      style={{ backgroundColor: `${meal.color}20` }}
+                                    >
+                                      <span className="text-sm font-bold" style={{ color: meal.color }}>
+                                        {meal.label.charAt(0)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="font-semibold text-gray-900 text-sm">{token.meal_type}</h4>
+                                    <p className="text-xs text-gray-500">
+                                      Token #{token.token_no}
+                                      {token.collected_at && (
+                                        <> • Collected at {new Date(token.collected_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</>
+                                      )}
+                                    </p>
+                                  </div>
+                                  <span className={`text-[10px] ${status.badge} text-white px-2 py-1 rounded font-semibold`}>
+                                    {status.text}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-5 border-t border-gray-100 flex justify-end flex-shrink-0">
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

@@ -13,7 +13,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
 
   const [preferences, setPreferences] = useState({
-    membership_type: memberData?.membership_type || 'full',
+    membership_type: memberData?.membership_type || 'full_time',
     food_preference: memberData?.food_preference || 'non_vegetarian',
     preferred_meal_plan: memberData?.preferred_meal_plan || memberData?.meal_timing_preference || [],
     has_food_allergies: memberData?.has_food_allergies || false,
@@ -48,6 +48,8 @@ export default function ProfilePage() {
   const handleSavePreferences = async () => {
     try {
       setSaving(true);
+      console.log('Saving preferences:', { memberId: memberData.id, memberType, preferences });
+
       const response = await fetch('/api/member-preferences', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -58,15 +60,20 @@ export default function ProfilePage() {
         }),
       });
 
+      console.log('Response status:', response.status);
+
       if (response.ok) {
         toast.success('Preferences saved!');
         setIsEditing(false);
         refreshMemberData?.();
       } else {
-        toast.error('Failed to save');
+        const errorData = await response.json().catch(() => null);
+        console.error('Save failed:', errorData);
+        toast.error(errorData?.error || `Failed to save (${response.status})`);
       }
-    } catch {
-      toast.error('Something went wrong');
+    } catch (error) {
+      console.error('Save error:', error);
+      toast.error(error.message || 'Something went wrong');
     } finally {
       setSaving(false);
     }
@@ -74,7 +81,7 @@ export default function ProfilePage() {
 
   const resetPreferences = () => {
     setPreferences({
-      membership_type: memberData?.membership_type || 'full',
+      membership_type: memberData?.membership_type || 'full_time',
       food_preference: memberData?.food_preference || 'non_vegetarian',
       preferred_meal_plan: memberData?.preferred_meal_plan || memberData?.meal_timing_preference || [],
       has_food_allergies: memberData?.has_food_allergies || false,
@@ -133,28 +140,25 @@ export default function ProfilePage() {
   ];
 
   return (
-    <div className="space-y-5">
-      {/* Profile Header */}
-      <div className={`relative rounded-2xl bg-gradient-to-br ${config.gradient} p-6 overflow-hidden`}>
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl" />
-        <div className="absolute bottom-0 left-0 w-24 h-24 bg-black/10 rounded-full translate-y-1/2 -translate-x-1/2 blur-xl" />
-
-        <div className="relative flex items-center gap-5">
+    <div className="space-y-3">
+      {/* Compact White Profile Header */}
+      <div className="bg-white rounded-xl p-4 border border-gray-200">
+        <div className="flex items-center gap-3">
           <div className="relative">
-            <div className="w-20 h-20 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-3xl font-bold text-white ring-4 ring-white/20">
+            <div className="w-14 h-14 rounded-lg bg-indigo-600 flex items-center justify-center text-xl font-bold text-white">
               {getInitials(memberData?.full_name)}
             </div>
-            <div className={`absolute -bottom-1 -right-1 w-5 h-5 ${statusColors[memberData?.status] || 'bg-gray-400'} rounded-full ring-4 ring-white`} />
+            <div className={`absolute -bottom-1 -right-1 w-4 h-4 ${statusColors[memberData?.status] || 'bg-gray-400'} rounded-full ring-2 ring-white`} />
           </div>
 
-          <div className="flex-1 min-w-0 text-white">
-            <h1 className="text-2xl font-bold truncate">{memberData?.full_name}</h1>
-            <p className="text-white/70 text-sm truncate">{memberData?.email_address}</p>
-            <div className="flex items-center gap-2 mt-3">
-              <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-medium backdrop-blur-sm capitalize">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-base font-bold text-gray-900 truncate">{memberData?.full_name}</h1>
+            <p className="text-xs text-gray-600 truncate">{memberData?.email_address}</p>
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-[10px] font-semibold text-indigo-600 capitalize">
                 {memberType}
               </span>
-              <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-mono backdrop-blur-sm">
+              <span className="px-2 py-0.5 rounded-md bg-gray-100 text-[10px] font-mono text-gray-700">
                 {memberData?.membership_id || 'N/A'}
               </span>
             </div>
@@ -162,19 +166,19 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Content Card */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        {/* Tabs */}
-        <div className="flex bg-gray-50 border-b border-gray-200">
+      {/* Compact Content Card */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        {/* Compact Tabs */}
+        <div className="flex border-b border-gray-200">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => { setActiveTab(tab.id); setIsEditing(false); }}
               className={classNames(
-                "flex-1 py-4 text-sm font-medium transition-all border-b-2 -mb-px",
+                "flex-1 py-2.5 text-xs font-semibold transition-all border-b-2 -mb-px",
                 activeTab === tab.id
-                  ? "text-primary-600 border-primary-600 bg-white"
-                  : "text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-100"
+                  ? "text-indigo-600 border-indigo-600 bg-white"
+                  : "text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50"
               )}
             >
               {tab.label}
@@ -183,25 +187,79 @@ export default function ProfilePage() {
         </div>
 
         {/* Tab Content */}
-        <div className="p-5">
-          {activeTab === 'meal' && isEditing ? (
-            <div className="space-y-5">
+        <div className="p-4">
+          {activeTab === 'meal' && (
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors px-2.5 py-1 rounded-lg hover:bg-indigo-50"
+              >
+                Edit
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {fields[activeTab]?.map((field, i) => (
+              <div key={i} className="p-2.5 rounded-lg bg-gray-50 border border-gray-200 hover:border-gray-300 transition-all">
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{field.label}</p>
+                <p className={classNames(
+                  "text-gray-900 font-semibold capitalize break-words",
+                  field.mono ? "font-mono text-xs" : "text-xs"
+                )}>
+                  {field.value || <span className="text-gray-400">—</span>}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Compact Help Card */}
+      <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+        <p className="text-xs font-semibold text-gray-900">Need help?</p>
+        <p className="text-[10px] text-gray-600 mt-0.5">Contact admin to update personal information.</p>
+      </div>
+
+      {/* Edit Modal */}
+      {isEditing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl">
+            {/* Modal Header */}
+            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="font-bold text-sm text-gray-900">Edit Preferences</h3>
+              <button
+                onClick={resetPreferences}
+                className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4 space-y-2.5 max-h-[70vh] overflow-y-auto">
               {/* Membership */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Membership Type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['full', 'partial'].map((opt) => (
+                <label className="text-[10px] font-medium text-gray-600 mb-1 block">Membership</label>
+                <div className="flex gap-1.5">
+                  {[
+                    { value: 'full_time', label: 'Full Time' },
+                    { value: 'partial', label: 'Partial' },
+                    { value: 'day_to_day', label: 'Day to Day' },
+                  ].map((opt) => (
                     <button
-                      key={opt}
-                      onClick={() => setPreferences(p => ({ ...p, membership_type: opt }))}
+                      key={opt.value}
+                      onClick={() => setPreferences(p => ({ ...p, membership_type: opt.value }))}
                       className={classNames(
-                        "py-3 rounded-xl text-sm font-medium transition-all capitalize",
-                        preferences.membership_type === opt
-                          ? "bg-primary-600 text-white shadow-lg shadow-primary-600/30"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-colors",
+                        preferences.membership_type === opt.value
+                          ? "bg-indigo-600 text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       )}
                     >
-                      {opt}
+                      {opt.label}
                     </button>
                   ))}
                 </div>
@@ -209,10 +267,10 @@ export default function ProfilePage() {
 
               {/* Food Preference */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Food Preference</label>
-                <div className="grid grid-cols-3 gap-2">
+                <label className="text-[10px] font-medium text-gray-600 mb-1 block">Food Preference</label>
+                <div className="flex gap-1.5">
                   {[
-                    { value: 'vegetarian', label: 'Vegetarian' },
+                    { value: 'vegetarian', label: 'Veg' },
                     { value: 'non_vegetarian', label: 'Non-Veg' },
                     { value: 'vegan', label: 'Vegan' },
                   ].map((opt) => (
@@ -220,10 +278,10 @@ export default function ProfilePage() {
                       key={opt.value}
                       onClick={() => setPreferences(p => ({ ...p, food_preference: opt.value }))}
                       className={classNames(
-                        "py-3 rounded-xl text-sm font-medium transition-all",
+                        "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-colors",
                         preferences.food_preference === opt.value
-                          ? "bg-primary-600 text-white shadow-lg shadow-primary-600/30"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          ? "bg-indigo-600 text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       )}
                     >
                       {opt.label}
@@ -234,8 +292,8 @@ export default function ProfilePage() {
 
               {/* Meal Plan */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Meal Plan</label>
-                <div className="grid grid-cols-3 gap-2">
+                <label className="text-[10px] font-medium text-gray-600 mb-1 block">Meal Plan</label>
+                <div className="flex gap-1.5">
                   {['breakfast', 'lunch', 'dinner'].map((opt) => {
                     const selected = Array.isArray(preferences.preferred_meal_plan) && preferences.preferred_meal_plan.includes(opt);
                     return (
@@ -243,10 +301,10 @@ export default function ProfilePage() {
                         key={opt}
                         onClick={() => handleMealPlanToggle(opt)}
                         className={classNames(
-                          "py-3 rounded-xl text-sm font-medium transition-all capitalize",
+                          "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-colors capitalize",
                           selected
-                            ? "bg-primary-600 text-white shadow-lg shadow-primary-600/30"
-                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                         )}
                       >
                         {opt}
@@ -258,103 +316,74 @@ export default function ProfilePage() {
 
               {/* Allergies */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Food Allergies</label>
-                <div className="grid grid-cols-2 gap-2 mb-2">
+                <label className="text-[10px] font-medium text-gray-600 mb-1 block">Allergies</label>
+                <div className="flex gap-1.5 mb-1.5">
                   <button
                     onClick={() => setPreferences(p => ({ ...p, has_food_allergies: false, food_allergies_details: '' }))}
                     className={classNames(
-                      "py-3 rounded-xl text-sm font-medium transition-all",
+                      "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-colors",
                       !preferences.has_food_allergies
-                        ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        ? "bg-green-600 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     )}
                   >
-                    No Allergies
+                    None
                   </button>
                   <button
                     onClick={() => setPreferences(p => ({ ...p, has_food_allergies: true }))}
                     className={classNames(
-                      "py-3 rounded-xl text-sm font-medium transition-all",
+                      "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-colors",
                       preferences.has_food_allergies
-                        ? "bg-amber-500 text-white shadow-lg shadow-amber-500/30"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        ? "bg-amber-600 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     )}
                   >
-                    Have Allergies
+                    Yes
                   </button>
                 </div>
                 {preferences.has_food_allergies && (
                   <input
                     type="text"
-                    placeholder="Specify allergies..."
+                    placeholder="Details..."
                     value={preferences.food_allergies_details}
                     onChange={(e) => setPreferences(p => ({ ...p, food_allergies_details: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full px-2.5 py-1.5 rounded-md border border-gray-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 )}
               </div>
 
               {/* Medical */}
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Medical Conditions</label>
+                <label className="text-[10px] font-medium text-gray-600 mb-1 block">Medical</label>
                 <input
                   type="text"
-                  placeholder="Enter medical conditions or leave empty"
+                  placeholder="Optional..."
                   value={preferences.medical_conditions}
                   onChange={(e) => setPreferences(p => ({ ...p, medical_conditions: e.target.value }))}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-2.5 py-1.5 rounded-md border border-gray-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={resetPreferences}
-                  className="flex-1 py-3 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
-                >
-                  Cancel
-                </button>
-                <Button onClick={handleSavePreferences} loading={saving} className="flex-1">
-                  Save Changes
-                </Button>
-              </div>
             </div>
-          ) : (
-            <>
-              {activeTab === 'meal' && (
-                <div className="flex justify-end mb-4">
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="text-sm font-medium text-primary-600 hover:text-primary-700 transition-colors px-3 py-1.5 rounded-lg hover:bg-primary-50"
-                  >
-                    Edit
-                  </button>
-                </div>
-              )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {fields[activeTab]?.map((field, i) => (
-                  <div key={i} className="p-4 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100/50 hover:from-gray-100 hover:to-gray-50 transition-all group">
-                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">{field.label}</p>
-                    <p className={classNames(
-                      "text-gray-900 font-medium capitalize group-hover:text-primary-600 transition-colors break-words",
-                      field.mono ? "font-mono text-sm" : "text-sm"
-                    )}>
-                      {field.value || <span className="text-gray-300">—</span>}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+            {/* Modal Footer */}
+            <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
+              <button
+                onClick={resetPreferences}
+                className="flex-1 py-1.5 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSavePreferences}
+                disabled={saving}
+                className="flex-1 py-1.5 rounded-md text-[11px] font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* Help Card */}
-      <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100">
-        <p className="text-sm font-semibold text-gray-900">Need help?</p>
-        <p className="text-xs text-gray-600 mt-0.5">Contact admin to update personal information.</p>
-      </div>
+      )}
     </div>
   );
 }

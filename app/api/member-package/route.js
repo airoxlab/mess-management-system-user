@@ -22,13 +22,16 @@ export async function GET(request) {
       );
     }
 
-    // Get active package from member_meal_packages table
+    // Get active package from member_packages table (correct table with package_type)
     const { data: memberPackage, error } = await supabase
-      .from('member_meal_packages')
+      .from('member_packages')
       .select('*')
       .eq('member_id', memberId)
       .eq('member_type', memberType)
       .eq('is_active', true)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
     if (error && error.code !== 'PGRST116') {
@@ -39,102 +42,122 @@ export async function GET(request) {
       return NextResponse.json({ package: null });
     }
 
-    // Get collected/pending meal tokens count
     const today = new Date().toISOString().split('T')[0];
 
-    // Get all tokens for this member within package validity
-    const { data: tokens, error: tokensError } = await supabase
-      .from('meal_tokens')
-      .select('meal_type, status, token_date')
-      .eq('member_id', memberId)
-      .gte('token_date', memberPackage.valid_from || today)
-      .lte('token_date', memberPackage.valid_until || '2099-12-31');
-
-    if (tokensError) {
-      console.error('Tokens fetch error:', tokensError);
-    }
-
-    // Helper to parse boolean values (handles string 'true'/'false' from DB)
+    // Helper to parse boolean values
     const parseBoolean = (value) => {
       if (typeof value === 'boolean') return value;
       if (typeof value === 'string') return value.toLowerCase() === 'true';
       return Boolean(value);
     };
 
-    // Helper to parse number values (handles string numbers from DB)
+    // Helper to parse number values
     const parseNumber = (value) => {
       if (typeof value === 'number') return value;
-      if (typeof value === 'string') return parseInt(value, 10) || 0;
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        return isNaN(parsed) ? 0 : parsed;
+      }
       return 0;
     };
 
-    // Get total meals from package configuration (meals per month)
-    const getTotalMeals = (mealType) => {
-      const enabled = parseBoolean(memberPackage[`${mealType}_enabled`]);
-      if (!enabled) return 0;
-
-      // Support both new (meals_per_month) and old (meals_per_day) column names
-      const mealsPerMonth = parseNumber(memberPackage[`${mealType}_meals_per_month`]);
-      const mealsPerDay = parseNumber(memberPackage[`${mealType}_meals_per_day`]);
-
-      return mealsPerMonth || mealsPerDay || 0;
-    };
-
-    // Normalize boolean fields for frontend
+    // Normalize package data
     const normalizedPackage = {
       ...memberPackage,
       breakfast_enabled: parseBoolean(memberPackage.breakfast_enabled),
       lunch_enabled: parseBoolean(memberPackage.lunch_enabled),
       dinner_enabled: parseBoolean(memberPackage.dinner_enabled),
       is_active: parseBoolean(memberPackage.is_active),
-      breakfast_meals_per_month: parseNumber(memberPackage.breakfast_meals_per_month),
-      lunch_meals_per_month: parseNumber(memberPackage.lunch_meals_per_month),
-      dinner_meals_per_month: parseNumber(memberPackage.dinner_meals_per_month),
+      total_breakfast: parseNumber(memberPackage.total_breakfast),
+      total_lunch: parseNumber(memberPackage.total_lunch),
+      total_dinner: parseNumber(memberPackage.total_dinner),
+      consumed_breakfast: parseNumber(memberPackage.consumed_breakfast),
+      consumed_lunch: parseNumber(memberPackage.consumed_lunch),
+      consumed_dinner: parseNumber(memberPackage.consumed_dinner),
+      balance: parseNumber(memberPackage.balance),
+      breakfast_price: parseNumber(memberPackage.breakfast_price),
+      lunch_price: parseNumber(memberPackage.lunch_price),
+      dinner_price: parseNumber(memberPackage.dinner_price),
+      price: parseNumber(memberPackage.price),
     };
 
-    // Calculate stats from tokens
-    const tokenStats = {
-      breakfast: { collected: 0, pending: 0, cancelled: 0, total: getTotalMeals('breakfast') },
-      lunch: { collected: 0, pending: 0, cancelled: 0, total: getTotalMeals('lunch') },
-      dinner: { collected: 0, pending: 0, cancelled: 0, total: getTotalMeals('dinner') },
+    // Calculate meal statistics
+    const getMealStats = (mealType) => {
+      const total = normalizedPackage[`total_${mealType}`];
+      const consumed = normalizedPackage[`consumed_${mealType}`];
+      const remaining = total - consumed;
+
+      return {
+        total,
+        consumed,
+        remaining: remaining > 0 ? remaining : 0,
+        enabled: normalizedPackage[`${mealType}_enabled`],
+      };
     };
 
-    if (tokens) {
-      tokens.forEach(token => {
+    const mealStats = {
+      breakfast: getMealStats('breakfast'),
+      lunch: getMealStats('lunch'),
+      dinner: getMealStats('dinner'),
+    };
+
+    // Get meal tokens for today's status
+    const { data: todayTokens } = await supabase
+      .from('meal_tokens')
+      .select('meal_type, status')
+      .eq('member_id', memberId)
+      .eq('token_date', today);
+
+    const todayMealStatus = {
+      breakfast: null,
+      lunch: null,
+      dinner: null,
+    };
+
+    if (todayTokens) {
+      todayTokens.forEach(token => {
         const mealKey = token.meal_type.toLowerCase();
-        if (tokenStats[mealKey]) {
-          if (token.status === 'COLLECTED') {
-            tokenStats[mealKey].collected++;
-          } else if (token.status === 'PENDING') {
-            tokenStats[mealKey].pending++;
-          } else if (token.status === 'CANCELLED') {
-            tokenStats[mealKey].cancelled++;
-          }
-        }
+        todayMealStatus[mealKey] = token.status;
       });
     }
 
     // Calculate remaining days
-    const packageValidUntil = memberPackage.valid_until ? new Date(memberPackage.valid_until) : null;
+    const packageValidUntil = memberPackage.end_date ? new Date(memberPackage.end_date) : null;
     const todayDate = new Date();
     todayDate.setHours(0, 0, 0, 0);
 
     let daysRemaining = null;
     let isUnlimited = false;
+    let isExpired = false;
+
     if (packageValidUntil) {
       const timeDiff = packageValidUntil.getTime() - todayDate.getTime();
       daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-      if (daysRemaining < 0) daysRemaining = 0;
+      if (daysRemaining < 0) {
+        daysRemaining = 0;
+        isExpired = true;
+      }
     } else {
       isUnlimited = true;
     }
+
+    // Format package type for display
+    const packageTypeLabels = {
+      full_time: 'Full Time',
+      partial_full_time: 'Full Time (Weekend Off)',
+      partial: 'Partial',
+      daily_basis: 'Daily Basis',
+    };
 
     return NextResponse.json({
       package: {
         ...normalizedPackage,
         daysRemaining,
         isUnlimited,
-        tokenStats,
+        isExpired,
+        mealStats,
+        todayMealStatus,
+        packageTypeLabel: packageTypeLabels[memberPackage.package_type] || memberPackage.package_type,
       }
     });
   } catch (error) {

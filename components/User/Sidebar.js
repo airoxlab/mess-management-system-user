@@ -87,7 +87,7 @@ export function Sidebar({ isOpen, onClose }) {
         />
       )}
 
-      {/* Sidebar */}
+      {/* Modern Sidebar */}
       <aside
         className={cn(
           'fixed top-0 left-0 w-64 h-screen bg-white border-r border-gray-200 flex flex-col z-50',
@@ -96,34 +96,34 @@ export function Sidebar({ isOpen, onClose }) {
           isOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        {/* Logo */}
-        <div className="p-6 border-b border-gray-200">
+        {/* Modern Header */}
+        <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-200">
           <div className="flex items-center justify-between">
-            <Link href="/user" className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <Link href="/user" className="flex items-center gap-2.5">
+              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center shadow-sm">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
                 </svg>
               </div>
               <div>
-                <h1 className="font-bold text-gray-900">LIMHS</h1>
-                <p className="text-xs text-gray-500">Cafeteria</p>
+                <h1 className="text-sm font-bold text-gray-900">LIMHS</h1>
+                <p className="text-[10px] text-gray-500">Cafeteria</p>
               </div>
             </Link>
             {/* Close button for mobile */}
             <button
               onClick={onClose}
-              className="lg:hidden p-2 rounded-lg hover:bg-gray-100"
+              className="lg:hidden p-1.5 rounded-md hover:bg-white/50 transition-colors"
             >
-              <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 p-4 overflow-y-auto">
+        {/* Modern Navigation */}
+        <nav className="flex-1 p-3 overflow-y-auto">
           <ul className="space-y-1">
             {menuItems.map((item) => {
               const isActive = pathname === item.href ||
@@ -134,14 +134,19 @@ export function Sidebar({ isOpen, onClose }) {
                   <Link
                     href={item.href}
                     className={cn(
-                      'flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors',
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all',
                       isActive
-                        ? 'bg-primary-50 text-primary-700'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                        ? 'bg-green-50 text-green-700 border border-green-200 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 border border-transparent'
                     )}
                   >
-                    {item.icon}
-                    <span className="font-medium">{item.title}</span>
+                    <div className={cn(
+                      'w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 transition-colors',
+                      isActive ? 'bg-green-100' : 'bg-gray-100'
+                    )}>
+                      {item.icon}
+                    </div>
+                    <span className="text-sm font-medium">{item.title}</span>
                   </Link>
                 </li>
               );
@@ -149,13 +154,13 @@ export function Sidebar({ isOpen, onClose }) {
           </ul>
         </nav>
 
-        {/* User & Logout */}
-        <div className="p-4 border-t border-gray-200">
+        {/* Modern User & Logout */}
+        <div className="p-3 border-t border-gray-200 bg-gray-50">
           {memberData && (
-            <div className="mb-3 px-4 py-2">
-              <p className="text-sm font-medium text-gray-900 truncate">{memberData.full_name}</p>
+            <div className="mb-2 px-3 py-2 bg-white rounded-lg border border-gray-200">
+              <p className="text-xs font-bold text-gray-900 truncate">{memberData.full_name}</p>
               <span className={cn(
-                'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full capitalize',
+                'inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold rounded-md capitalize',
                 memberTypeColors[memberType] || 'bg-gray-100 text-gray-700'
               )}>
                 {memberType}
@@ -164,12 +169,14 @@ export function Sidebar({ isOpen, onClose }) {
           )}
           <button
             onClick={handleLogout}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-red-200 text-red-600 hover:bg-red-50 transition-all"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-            <span className="font-medium">Logout</span>
+            <div className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 bg-red-100">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </div>
+            <span className="text-sm font-semibold">Logout</span>
           </button>
         </div>
       </aside>
