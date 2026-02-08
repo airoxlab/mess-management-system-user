@@ -100,35 +100,63 @@ export default function DashboardPage() {
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Today's Meals Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
+        {/* Today's Meals Card - Only for non-daily basis packages */}
+        {memberPackage?.package_type !== 'daily_basis' && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
+                <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-gray-900">Today&apos;s Meals</h3>
             </div>
-            <h3 className="font-semibold text-gray-900">Today&apos;s Meals</h3>
-          </div>
 
-          <div className="space-y-2">
-            {MEAL_TYPES.map((meal) => {
-              const isSelected = todaySelections?.[`${meal.value}_needed`] !== false;
-              return (
-                <div key={meal.value} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-gray-600 capitalize">{meal.label}</span>
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    isSelected
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {isSelected ? 'Needed' : 'Not Needed'}
-                  </span>
-                </div>
-              );
-            })}
+            <div className="space-y-2">
+              {MEAL_TYPES.map((meal) => {
+                const isSelected = todaySelections?.[`${meal.value}_needed`] !== false;
+                return (
+                  <div key={meal.value} className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-600 capitalize">{meal.label}</span>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      isSelected
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {isSelected ? 'Needed' : 'Not Needed'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Daily Basis Quick Info Card - Only for daily basis packages */}
+        {memberPackage?.package_type === 'daily_basis' && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-gray-900">Order & Pay</h3>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Scan your QR code at the cafeteria to order meals. Your balance will be deducted automatically.
+              </p>
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <span className="text-sm font-medium text-gray-700">Current Balance</span>
+                <span className="text-lg font-bold text-green-600">
+                  PKR {memberPackage.balance?.toLocaleString() || '0'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Package Info Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
@@ -143,27 +171,125 @@ export default function DashboardPage() {
 
           {memberPackage ? (
             <div className="space-y-2">
+              {/* Package Type */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Type</span>
+                <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full capitalize">
+                  {memberPackage.package_type?.replace(/_/g, ' ')}
+                </span>
+              </div>
+
+              {/* Status */}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Status</span>
-                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
-                  Active
+                <span className={`text-xs px-2 py-1 rounded-full ${
+                  memberPackage.status === 'active'
+                    ? 'bg-green-100 text-green-700'
+                    : memberPackage.status === 'deactivated'
+                    ? 'bg-orange-100 text-orange-700'
+                    : memberPackage.status === 'expired'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-gray-100 text-gray-700'
+                }`}>
+                  {memberPackage.status?.charAt(0).toUpperCase() + memberPackage.status?.slice(1)}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Meals Included</span>
-                <span className="text-sm font-medium text-gray-900">
-                  {[
-                    memberPackage.breakfast_enabled && 'B',
-                    memberPackage.lunch_enabled && 'L',
-                    memberPackage.dinner_enabled && 'D',
-                  ].filter(Boolean).join(', ')}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Price</span>
-                <span className="text-sm font-medium text-gray-900">
-                  PKR {memberPackage.price?.toLocaleString() || '0'}
-                </span>
+
+              {/* Package-specific information */}
+              {memberPackage.package_type === 'daily_basis' ? (
+                // Daily Basis: Show balance
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Balance</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      PKR {memberPackage.balance?.toLocaleString() || '0'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Breakfast Price</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      PKR {memberPackage.breakfast_price?.toLocaleString() || '0'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Lunch Price</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      PKR {memberPackage.lunch_price?.toLocaleString() || '0'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Dinner Price</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      PKR {memberPackage.dinner_price?.toLocaleString() || '0'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                // Other packages: Show meals remaining
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Meals Included</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {[
+                        memberPackage.breakfast_enabled && 'B',
+                        memberPackage.lunch_enabled && 'L',
+                        memberPackage.dinner_enabled && 'D',
+                      ].filter(Boolean).join(', ') || 'None'}
+                    </span>
+                  </div>
+
+                  {/* Show meals remaining for enabled meals */}
+                  {memberPackage.breakfast_enabled && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Breakfast Left</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {(memberPackage.total_breakfast - memberPackage.consumed_breakfast) || 0}
+                      </span>
+                    </div>
+                  )}
+                  {memberPackage.lunch_enabled && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Lunch Left</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {(memberPackage.total_lunch - memberPackage.consumed_lunch) || 0}
+                      </span>
+                    </div>
+                  )}
+                  {memberPackage.dinner_enabled && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Dinner Left</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {(memberPackage.total_dinner - memberPackage.consumed_dinner) || 0}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Validity dates */}
+                  {memberPackage.start_date && memberPackage.end_date && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Valid Until</span>
+                        <span className="text-xs font-medium text-gray-900">
+                          {new Date(memberPackage.end_date).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Package Price */}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Package Price</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    PKR {memberPackage.price?.toLocaleString() || '0'}
+                  </span>
+                </div>
               </div>
             </div>
           ) : (
@@ -210,18 +336,21 @@ export default function DashboardPage() {
       {/* Quick Actions */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="font-semibold text-gray-900 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Link
-            href="/dashboard/meals"
-            className="flex flex-col items-center gap-2 p-4 bg-amber-50 rounded-xl hover:bg-amber-100 transition-colors"
-          >
-            <div className="w-12 h-12 bg-amber-500 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <span className="text-sm font-medium text-amber-800">Schedule Meals</span>
-          </Link>
+        <div className={`grid grid-cols-2 ${memberPackage?.package_type === 'daily_basis' ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4`}>
+          {/* Schedule Meals - Only for non-daily basis packages */}
+          {memberPackage?.package_type !== 'daily_basis' && (
+            <Link
+              href="/dashboard/meals"
+              className="flex flex-col items-center gap-2 p-4 bg-amber-50 rounded-xl hover:bg-amber-100 transition-colors"
+            >
+              <div className="w-12 h-12 bg-amber-500 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <span className="text-sm font-medium text-amber-800">Schedule Meals</span>
+            </Link>
+          )}
 
           <Link
             href="/dashboard/qrcode"

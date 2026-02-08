@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { formatDate, MEAL_TYPES, getDayName, parseOrgData } from '@/lib/utils';
 import { toast } from 'sonner';
 import supabase from '@/lib/supabase';
+import api from '@/lib/api-client';
 
 // Format time string "HH:MM" or "HH:MM:SS" to "h:mm AM/PM"
 function formatTimeDisplay(timeStr) {
@@ -39,6 +40,8 @@ export default function MealSchedulePage() {
   const [historyMealFilter, setHistoryMealFilter] = useState('all');
   const [orgSettings, setOrgSettings] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [menuOptions, setMenuOptions] = useState({}); // Store menu options by date/meal
+  const [selectedMenuOptions, setSelectedMenuOptions] = useState({}); // Store selected options by date/meal
 
   // Real-time clock for deadline tracking
   useEffect(() => {
@@ -124,7 +127,7 @@ export default function MealSchedulePage() {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30);
       const startDateStr = startDate.toISOString().split('T')[0];
-      const tokensRes = await fetch(
+      const tokensRes = await api.get(
         `/api/meal-tokens?memberId=${memberData.id}&startDate=${startDateStr}&endDate=${endDate}`
       );
       if (tokensRes.ok) {
@@ -136,27 +139,96 @@ export default function MealSchedulePage() {
     }
   }, [memberData?.id]);
 
+  // Fetch menu options for next 14 days
+  const fetchMenuOptions = useCallback(async () => {
+    try {
+      const startDate = selectableDates[0].toISOString().split('T')[0];
+      const endDate = selectableDates[selectableDates.length - 1].toISOString().split('T')[0];
+
+      const response = await api.get(`/api/menu-options?start_date=${startDate}&end_date=${endDate}`);
+      if (response.ok) {
+        const data = await response.json();
+        // Organize options by date and meal type
+        const optionsMap = {};
+        data.options?.forEach(option => {
+          const key = `${option.date}_${option.meal_type}`;
+          if (!optionsMap[key]) {
+            optionsMap[key] = [];
+          }
+          optionsMap[key].push(option);
+        });
+        setMenuOptions(optionsMap);
+      }
+    } catch (error) {
+      console.log('Error fetching menu options:', error);
+    }
+  }, []);
+
+  // Fetch existing menu selections
+  const fetchMenuSelections = useCallback(async () => {
+    if (!memberData?.id) return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await api.get(
+        `/api/member-menu-selections?memberId=${memberData.id}&memberType=${memberType}&date=${today}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const selectionsMap = {};
+        data.selections?.forEach(selection => {
+          const key = `${selection.date}_${selection.meal_type}`;
+          selectionsMap[key] = selection.menu_option_id;
+        });
+        setSelectedMenuOptions(selectionsMap);
+      }
+    } catch (error) {
+      console.log('Error fetching menu selections:', error);
+    }
+  }, [memberData?.id, memberType]);
+
   const fetchData = useCallback(async () => {
     if (!memberData?.id) return;
     try {
       setLoading(true);
 
-      // Fetch organization settings directly from organizations table
+      // Fetch organization settings for the user's organization
       try {
-        const { data: org } = await supabase
+        if (!memberData?.organization_id) {
+          console.error('No organization_id found in memberData');
+          return;
+        }
+
+        console.log('=== FETCHING ORGANIZATION ===');
+        console.log('User organization ID:', memberData.organization_id);
+
+        // Fetch the user's specific organization
+        const { data: org, error: orgError } = await supabase
           .from('organizations')
           .select('id, name, settings, meal_skip_deadline')
-          .eq('is_active', true)
-          .limit(1)
+          .eq('id', memberData.organization_id)
           .single();
-        setOrgSettings(parseOrgData(org));
+
+        if (orgError) {
+          console.error('Error fetching organization:', orgError);
+          throw orgError;
+        }
+
+        console.log('=== ORG DATA FROM DATABASE ===');
+        console.log('Organization ID:', org?.id);
+        console.log('Organization Name:', org?.name);
+        console.log('Settings:', org?.settings);
+        console.log('Dinner times:', org?.settings?.dinner_start, 'to', org?.settings?.dinner_end);
+
+        const parsedSettings = parseOrgData(org);
+        setOrgSettings(parsedSettings);
       } catch (orgError) {
-        console.log('Failed to fetch org settings:', orgError);
+        console.error('Failed to fetch org settings:', orgError);
+        toast.error('Failed to load organization settings');
       }
 
       // Fetch member package
       try {
-        const packageRes = await fetch(
+        const packageRes = await api.get(
           `/api/member-package?memberId=${memberData.id}&memberType=${memberType}`
         );
         if (packageRes.ok) {
@@ -171,7 +243,7 @@ export default function MealSchedulePage() {
       // Fetch today's tokens
       const today = new Date().toISOString().split('T')[0];
       try {
-        const tokensRes = await fetch(
+        const tokensRes = await api.get(
           `/api/meal-tokens?memberId=${memberData.id}&startDate=${today}&endDate=${today}`
         );
         if (tokensRes.ok) {
@@ -185,13 +257,15 @@ export default function MealSchedulePage() {
 
       await fetchSelections();
       await fetchMealHistory();
+      await fetchMenuOptions();
+      await fetchMenuSelections();
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [memberData?.id, memberType, fetchMealHistory]);
+  }, [memberData?.id, memberType, fetchMealHistory, fetchMenuOptions, fetchMenuSelections]);
 
   useEffect(() => {
     if (memberData?.id) {
@@ -234,9 +308,15 @@ export default function MealSchedulePage() {
   const fetchSelections = async () => {
     if (!memberData?.id) return;
     try {
+      // Determine default toggle state based on package type
+      // full_time and partial_full_time: default ON (true) - they have meals included
+      // partial and daily_basis: default OFF (false) - they must opt-in
+      const packageType = memberPackage?.package_type;
+      const defaultState = packageType === 'full_time' || packageType === 'partial_full_time';
+
       const startDate = selectableDates[0].toISOString().split('T')[0];
       const endDate = selectableDates[selectableDates.length - 1].toISOString().split('T')[0];
-      const selectionsRes = await fetch(
+      const selectionsRes = await api.get(
         `/api/meal-selections?memberId=${memberData.id}&memberType=${memberType}&startDate=${startDate}&endDate=${endDate}`
       );
       if (selectionsRes.ok) {
@@ -246,15 +326,63 @@ export default function MealSchedulePage() {
           const dateStr = date.toISOString().split('T')[0];
           const existing = selectionsData.selections?.find((s) => s.date === dateStr);
           selectionsMap[dateStr] = {
-            breakfast: existing?.breakfast_needed ?? true,
-            lunch: existing?.lunch_needed ?? true,
-            dinner: existing?.dinner_needed ?? true,
+            breakfast: existing?.breakfast_needed ?? defaultState,
+            lunch: existing?.lunch_needed ?? defaultState,
+            dinner: existing?.dinner_needed ?? defaultState,
           };
         });
         setSelections(selectionsMap);
       }
     } catch (error) {
       console.log('Error fetching selections:', error);
+    }
+  };
+
+  // Save menu option selection
+  const handleSaveMenuSelection = async (mealType, menuOptionId) => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      const response = await api.post('/api/member-menu-selections', {
+        member_id: memberData.id,
+        member_type: memberType,
+        date: today,
+        meal_type: mealType,
+        menu_option_id: menuOptionId,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save menu selection');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error saving menu selection:', error);
+      return false;
+    }
+  };
+
+  // Handle menu option change
+  const handleMenuOptionChange = async (mealType, optionId) => {
+    const today = new Date().toISOString().split('T')[0];
+    const menuKey = `${today}_${mealType}`;
+
+    // Update local state
+    setSelectedMenuOptions(prev => ({
+      ...prev,
+      [menuKey]: optionId,
+    }));
+
+    // Auto-save to database if an option is selected
+    if (optionId) {
+      try {
+        const success = await handleSaveMenuSelection(mealType, optionId);
+        if (success) {
+          toast.success(`Menu option saved for ${mealType}`);
+        }
+      } catch (error) {
+        console.error('Error auto-saving menu option:', error);
+        toast.error('Failed to save menu option');
+      }
     }
   };
 
@@ -271,21 +399,37 @@ export default function MealSchedulePage() {
       const today = new Date().toISOString().split('T')[0];
       const currentState = selections[today]?.[mealType] !== false;
       const newState = !currentState;
+      const packageType = memberPackage?.package_type;
 
-      const response = await fetch('/api/meal-selections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          memberId: memberData.id,
-          memberType: memberType,
-          selections: [{
-            date: today,
-            breakfast: mealType === 'breakfast' ? newState : selections[today]?.breakfast ?? true,
-            lunch: mealType === 'lunch' ? newState : selections[today]?.lunch ?? true,
-            dinner: mealType === 'dinner' ? newState : selections[today]?.dinner ?? true,
-          }],
-        }),
+      // Menu option is mandatory when available (for ALL package types)
+      if (newState) {
+        const menuKey = `${today}_${mealType}`;
+        const availableOptions = menuOptions[menuKey] || [];
+        const selectedOption = selectedMenuOptions[menuKey];
+
+        // If menu options exist for this meal, require selection
+        if (availableOptions.length > 0 && !selectedOption) {
+          toast.error(`Please select a menu option for ${mealType} before confirming`);
+          setSkipping(null);
+          return;
+        }
+      }
+
+      // Determine default state based on package type
+      const defaultState = packageType === 'full_time' || packageType === 'partial_full_time';
+
+      const response = await api.post('/api/meal-selections', {
+        memberId: memberData.id,
+        memberType: memberType,
+        selections: [{
+          date: today,
+          breakfast: mealType === 'breakfast' ? newState : selections[today]?.breakfast ?? defaultState,
+          lunch: mealType === 'lunch' ? newState : selections[today]?.lunch ?? defaultState,
+          dinner: mealType === 'dinner' ? newState : selections[today]?.dinner ?? defaultState,
+        }],
       });
+
+      console.log('Meal toggle response status:', response.status);
 
       if (response.ok) {
         setSelections((prev) => ({
@@ -293,18 +437,23 @@ export default function MealSchedulePage() {
           [today]: { ...prev[today], [mealType]: newState },
         }));
 
+        // If turning ON and menu option is selected, save it
+        if (newState) {
+          const menuKey = `${today}_${mealType}`;
+          const selectedOption = selectedMenuOptions[menuKey];
+          if (selectedOption) {
+            await handleSaveMenuSelection(mealType, selectedOption);
+          }
+        }
+
         if (!newState) {
           try {
-            await fetch('/api/meal-tokens/skip', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                memberId: memberData.id,
-                memberType: memberType,
-                date: today,
-                mealType: mealType.toUpperCase(),
-                action: 'skip',
-              }),
+            await api.post('/api/meal-tokens/skip', {
+              memberId: memberData.id,
+              memberType: memberType,
+              date: today,
+              mealType: mealType.toUpperCase(),
+              action: 'skip',
             });
           } catch (skipError) {
             console.log('Token skip skipped:', skipError);
@@ -317,11 +466,15 @@ export default function MealSchedulePage() {
             : `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} skipped for today`
         );
       } else {
-        toast.error('Failed to update meal');
+        const errorData = await response.text();
+        console.error('Failed to update meal - Status:', response.status);
+        console.error('Error response:', errorData);
+        toast.error(`Failed to update meal: ${response.status}`);
       }
     } catch (error) {
       console.error('Error toggling meal:', error);
-      toast.error('Failed to update meal');
+      console.error('Error details:', error.message, error.stack);
+      toast.error(`Failed to update meal: ${error.message}`);
     } finally {
       setSkipping(null);
     }
@@ -356,21 +509,21 @@ export default function MealSchedulePage() {
   const handleSaveSelections = async () => {
     try {
       setSaving(true);
+      // Determine default state based on package type
+      const packageType = memberPackage?.package_type;
+      const defaultState = packageType === 'full_time' || packageType === 'partial_full_time';
+
       const selectionsArray = Object.entries(selections).map(([date, meals]) => ({
         date,
-        breakfast: meals.breakfast ?? true,
-        lunch: meals.lunch ?? true,
-        dinner: meals.dinner ?? true,
+        breakfast: meals.breakfast ?? defaultState,
+        lunch: meals.lunch ?? defaultState,
+        dinner: meals.dinner ?? defaultState,
       }));
 
-      const response = await fetch('/api/meal-selections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          memberId: memberData.id,
-          memberType: memberType,
-          selections: selectionsArray,
-        }),
+      const response = await api.post('/api/meal-selections', {
+        memberId: memberData.id,
+        memberType: memberType,
+        selections: selectionsArray,
       });
 
       if (response.ok) {
@@ -486,39 +639,6 @@ export default function MealSchedulePage() {
         )}
       </div>
 
-      {/* Action Buttons */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={() => setShowSelectionModal(true)}
-          className="bg-white border border-indigo-200 p-2 lg:p-2.5 hover:bg-indigo-50 transition-all flex items-center gap-2"
-        >
-          <div className="w-7 h-7 lg:w-8 lg:h-8 bg-indigo-600 rounded-md flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-            </svg>
-          </div>
-          <div className="text-left flex-1 min-w-0">
-            <h3 className="font-bold text-gray-900 text-[11px] lg:text-xs truncate">Skip Meals</h3>
-            <p className="text-[9px] lg:text-[10px] text-gray-500 truncate">Manage days</p>
-          </div>
-        </button>
-
-        <button
-          onClick={() => setShowHistoryModal(true)}
-          className="bg-white border border-green-200 p-2 lg:p-2.5 hover:bg-green-50 transition-all flex items-center gap-2"
-        >
-          <div className="w-7 h-7 lg:w-8 lg:h-8 bg-green-600 rounded-md flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <div className="text-left flex-1 min-w-0">
-            <h3 className="font-bold text-gray-900 text-[11px] lg:text-xs truncate">History</h3>
-            <p className="text-[9px] lg:text-[10px] text-gray-500 truncate">View past meals</p>
-          </div>
-        </button>
-      </div>
-
       {/* Today's Meals */}
       <div className="bg-white border border-gray-200">
         <div className="px-3 py-2.5 lg:px-4 lg:py-3 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50">
@@ -564,6 +684,13 @@ export default function MealSchedulePage() {
                   statusText = 'Locked';
                   statusColor = 'bg-indigo-600';
                 }
+
+                const menuKey = `${todayStr}_${meal.value}`;
+                const availableOptions = menuOptions[menuKey] || [];
+                const selectedOption = selectedMenuOptions[menuKey];
+                const packageType = memberPackage?.package_type;
+                // Show menu options if available and not collected (even if meal is currently skipped)
+                const showMenuOptions = availableOptions.length > 0 && !isCollected;
 
                 return (
                   <div key={meal.value} className="p-2.5 lg:p-3 hover:bg-gray-50 transition-colors">
@@ -647,6 +774,28 @@ export default function MealSchedulePage() {
                         {statusText}
                       </span>
                     </div>
+
+                    {/* Menu Options Dropdown */}
+                    {showMenuOptions && !locked && (
+                      <div className="mt-2 pl-11 lg:pl-12">
+                        <label className="block text-[10px] lg:text-xs font-semibold text-gray-700 mb-1">
+                          Select Menu Option {(packageType === 'partial' || packageType === 'daily_basis') && <span className="text-red-500">*</span>}
+                        </label>
+                        <select
+                          value={selectedOption || ''}
+                          onChange={(e) => handleMenuOptionChange(meal.value, e.target.value)}
+                          className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          disabled={locked}
+                        >
+                          <option value="">Choose a dish...</option>
+                          {availableOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.option_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 );
               })}

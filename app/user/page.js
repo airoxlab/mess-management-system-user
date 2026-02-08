@@ -399,22 +399,34 @@ export default function UserDashboardPage() {
           <div className="px-3 py-2 lg:px-4 lg:py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 lg:gap-4">
-                {/* Meal Balance */}
-                <div>
-                  <p className="text-[10px] lg:text-xs text-gray-500 font-medium">Meals Left</p>
-                  <p className="text-2xl lg:text-3xl font-extrabold text-indigo-600">
-                    <AnimatedNumber value={totalStats.remaining} delay={100} />
-                  </p>
-                </div>
+                {/* Meal Balance - Only for non-daily basis */}
+                {memberPackage.package_type !== 'daily_basis' && (
+                  <div>
+                    <p className="text-[10px] lg:text-xs text-gray-500 font-medium">Meals Left</p>
+                    <p className="text-2xl lg:text-3xl font-extrabold text-indigo-600">
+                      <AnimatedNumber value={totalStats.remaining} delay={100} />
+                    </p>
+                  </div>
+                )}
+
+                {/* Balance - Only for daily basis */}
+                {memberPackage.package_type === 'daily_basis' && (
+                  <div>
+                    <p className="text-[10px] lg:text-xs text-gray-500 font-medium">Balance</p>
+                    <p className="text-2xl lg:text-3xl font-extrabold text-green-600">
+                      Rs. <AnimatedNumber value={memberPackage.balance || 0} delay={100} />
+                    </p>
+                  </div>
+                )}
 
                 {/* Package Type */}
                 <div className="border-l border-gray-200 pl-3 lg:pl-4">
                   <p className="text-[10px] lg:text-xs text-gray-500 font-medium">Package</p>
-                  <p className="text-xs lg:text-sm font-bold text-gray-900">{memberPackage.packageTypeLabel}</p>
+                  <p className="text-xs lg:text-sm font-bold text-gray-900">{memberPackage.packageTypeLabel || memberPackage.package_type?.replace(/_/g, ' ')}</p>
                 </div>
               </div>
 
-              {/* Validity Badge */}
+              {/* Validity Badge - Only for non-daily basis */}
               {memberPackage.package_type !== 'daily_basis' && (
                 <div>
                   {memberPackage.isExpired ? (
@@ -438,22 +450,22 @@ export default function UserDashboardPage() {
               )}
             </div>
 
-            {/* Meal Breakdown - Horizontal Pills */}
+            {/* Meal Breakdown - Horizontal Pills - Only for non-daily basis */}
             {memberPackage.package_type !== 'daily_basis' && (
               <div className="flex items-center gap-2 mt-2 lg:mt-3 overflow-x-auto pb-1">
-                {memberPackage.breakfast_enabled && (
+                {memberPackage.breakfast_enabled && memberPackage.mealStats?.breakfast && (
                   <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-md border border-amber-200 flex-shrink-0">
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
                     <span className="text-[10px] lg:text-xs font-semibold text-gray-700">B: {memberPackage.mealStats.breakfast.remaining}/{memberPackage.mealStats.breakfast.total}</span>
                   </div>
                 )}
-                {memberPackage.lunch_enabled && (
+                {memberPackage.lunch_enabled && memberPackage.mealStats?.lunch && (
                   <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-md border border-green-200 flex-shrink-0">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
                     <span className="text-[10px] lg:text-xs font-semibold text-gray-700">L: {memberPackage.mealStats.lunch.remaining}/{memberPackage.mealStats.lunch.total}</span>
                   </div>
                 )}
-                {memberPackage.dinner_enabled && (
+                {memberPackage.dinner_enabled && memberPackage.mealStats?.dinner && (
                   <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-md border border-blue-200 flex-shrink-0">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
                     <span className="text-[10px] lg:text-xs font-semibold text-gray-700">D: {memberPackage.mealStats.dinner.remaining}/{memberPackage.mealStats.dinner.total}</span>
@@ -462,18 +474,27 @@ export default function UserDashboardPage() {
               </div>
             )}
 
-            {/* Daily Basis Balance */}
+            {/* Daily Basis Meal Prices - Only for daily basis */}
             {memberPackage.package_type === 'daily_basis' && (
-              <div className="flex items-center justify-between mt-2 lg:mt-3">
-                <div>
-                  <p className="text-[10px] lg:text-xs text-gray-500">Balance</p>
-                  <p className="text-lg lg:text-xl font-bold text-gray-900">Rs. {memberPackage.balance.toLocaleString()}</p>
-                </div>
-                <div className="flex gap-2 text-[10px] lg:text-xs">
-                  {memberPackage.breakfast_enabled && <span className="text-gray-600">B: Rs.{memberPackage.breakfast_price}</span>}
-                  {memberPackage.lunch_enabled && <span className="text-gray-600">L: Rs.{memberPackage.lunch_price}</span>}
-                  {memberPackage.dinner_enabled && <span className="text-gray-600">D: Rs.{memberPackage.dinner_price}</span>}
-                </div>
+              <div className="flex items-center gap-2 mt-2 lg:mt-3 overflow-x-auto pb-1">
+                {memberPackage.breakfast_enabled && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-md border border-amber-200 flex-shrink-0">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+                    <span className="text-[10px] lg:text-xs font-semibold text-gray-700">Breakfast: Rs.{memberPackage.breakfast_price}</span>
+                  </div>
+                )}
+                {memberPackage.lunch_enabled && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-md border border-green-200 flex-shrink-0">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+                    <span className="text-[10px] lg:text-xs font-semibold text-gray-700">Lunch: Rs.{memberPackage.lunch_price}</span>
+                  </div>
+                )}
+                {memberPackage.dinner_enabled && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-md border border-blue-200 flex-shrink-0">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                    <span className="text-[10px] lg:text-xs font-semibold text-gray-700">Dinner: Rs.{memberPackage.dinner_price}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -552,8 +573,8 @@ export default function UserDashboardPage() {
         </div>
       )}
 
-      {/* Today's Meals - Modern Flat Design */}
-      {memberPackage && enabledMeals.length > 0 ? (
+      {/* Today's Meals - Modern Flat Design - Only for non-daily basis */}
+      {memberPackage && memberPackage.package_type !== 'daily_basis' && enabledMeals.length > 0 ? (
         <div className="bg-white border border-gray-200">
           <div className="flex items-center justify-between p-3 lg:p-4 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50">
             <div className="flex items-center gap-1.5">
@@ -646,6 +667,32 @@ export default function UserDashboardPage() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      ) : memberPackage && memberPackage.package_type === 'daily_basis' && enabledMeals.length > 0 ? (
+        /* Daily Basis - Simple Info Card */
+        <div className="bg-white border border-gray-200">
+          <div className="flex items-center justify-between p-3 lg:p-4 border-b border-gray-100 bg-gradient-to-r from-green-50 to-emerald-50">
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+              <h2 className="text-sm lg:text-base font-bold text-gray-900">Daily Basis Plan</h2>
+            </div>
+          </div>
+
+          <div className="p-4 lg:p-6">
+            <div className="flex items-start gap-3 lg:gap-4">
+              <div className="w-12 h-12 lg:w-14 lg:h-14 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                <svg className="w-6 h-6 lg:w-7 lg:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-gray-900 text-base lg:text-lg mb-2">Pay Per Meal</h3>
+                <p className="text-sm lg:text-base text-gray-600">
+                  Visit the cafeteria to order any meal. The amount will be deducted from your balance automatically.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       ) : (
@@ -749,20 +796,41 @@ export default function UserDashboardPage() {
 
       {/* Quick Actions - Compact on mobile */}
       <div className="grid grid-cols-3 gap-3 lg:gap-4 animate-fade-in-delay-4">
-        <Link
-          href="/user/meals"
-          className="card-hover glass rounded-xl lg:rounded-2xl p-3 lg:p-5 flex flex-col items-center gap-2 lg:gap-3 border border-gray-100"
-        >
-          <div className="w-12 h-12 lg:w-14 lg:h-14 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg lg:rounded-xl flex items-center justify-center shadow-lg">
-            <svg className="w-6 h-6 lg:w-7 lg:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <div className="text-center">
-            <span className="text-xs lg:text-sm font-bold text-gray-900">Schedule</span>
-            <p className="text-[10px] lg:text-xs text-gray-500">Manage meals</p>
-          </div>
-        </Link>
+        {/* Schedule - Only for non-daily basis */}
+        {memberPackage?.package_type !== 'daily_basis' && (
+          <Link
+            href="/user/meals"
+            className="card-hover glass rounded-xl lg:rounded-2xl p-3 lg:p-5 flex flex-col items-center gap-2 lg:gap-3 border border-gray-100"
+          >
+            <div className="w-12 h-12 lg:w-14 lg:h-14 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg lg:rounded-xl flex items-center justify-center shadow-lg">
+              <svg className="w-6 h-6 lg:w-7 lg:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div className="text-center">
+              <span className="text-xs lg:text-sm font-bold text-gray-900">Schedule</span>
+              <p className="text-[10px] lg:text-xs text-gray-500">Manage meals</p>
+            </div>
+          </Link>
+        )}
+
+        {/* Meal Selection - Only for daily basis */}
+        {memberPackage?.package_type === 'daily_basis' && (
+          <Link
+            href="/user/meals"
+            className="card-hover glass rounded-xl lg:rounded-2xl p-3 lg:p-5 flex flex-col items-center gap-2 lg:gap-3 border border-gray-100"
+          >
+            <div className="w-12 h-12 lg:w-14 lg:h-14 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg lg:rounded-xl flex items-center justify-center shadow-lg">
+              <svg className="w-6 h-6 lg:w-7 lg:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+              </svg>
+            </div>
+            <div className="text-center">
+              <span className="text-xs lg:text-sm font-bold text-gray-900">Meal Selection</span>
+              <p className="text-[10px] lg:text-xs text-gray-500">Choose meals</p>
+            </div>
+          </Link>
+        )}
 
         <Link
           href="/user/history"
