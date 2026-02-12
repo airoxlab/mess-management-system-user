@@ -6,6 +6,7 @@ import { formatDate, MEAL_TYPES, getDayName, parseOrgData } from '@/lib/utils';
 import { toast } from 'sonner';
 import supabase from '@/lib/supabase';
 import api from '@/lib/api-client';
+import CustomOrderModal from '@/components/CustomOrderModal';
 
 // Format time string "HH:MM" or "HH:MM:SS" to "h:mm AM/PM"
 function formatTimeDisplay(timeStr) {
@@ -42,6 +43,12 @@ export default function MealSchedulePage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [menuOptions, setMenuOptions] = useState({}); // Store menu options by date/meal
   const [selectedMenuOptions, setSelectedMenuOptions] = useState({}); // Store selected options by date/meal
+  const [mealSettings, setMealSettings] = useState(null); // Store custom ordering settings
+  const [customOrderingItems, setCustomOrderingItems] = useState({}); // Store custom ordering items by meal type
+  const [customOrderSelections, setCustomOrderSelections] = useState({}); // Store custom order selections by date/meal
+  const [showCustomOrderModal, setShowCustomOrderModal] = useState(false); // Show/hide custom order modal
+  const [selectedMealForOrder, setSelectedMealForOrder] = useState(null); // Which meal is being ordered
+  const [customOrderItems, setCustomOrderItems] = useState({}); // Store fetched custom order items with quantities
 
   // Real-time clock for deadline tracking
   useEffect(() => {
@@ -139,6 +146,49 @@ export default function MealSchedulePage() {
     }
   }, [memberData?.id]);
 
+  // Fetch meal settings (custom ordering toggles)
+  const fetchMealSettings = useCallback(async () => {
+    try {
+      const response = await api.get('/api/meal-settings');
+      if (response.ok) {
+        const data = await response.json();
+        setMealSettings(data.settings);
+      }
+    } catch (error) {
+      console.log('Error fetching meal settings:', error);
+      // Set default if error
+      setMealSettings({
+        breakfast_enabled: false,
+        lunch_enabled: false,
+        dinner_enabled: false,
+      });
+    }
+  }, []);
+
+  // Fetch custom ordering items for each meal type (ONLY if toggle is ON)
+  const fetchCustomOrderingItems = useCallback(async (toggleStates) => {
+    try {
+      const mealTypes = ['breakfast', 'lunch', 'dinner'];
+      const itemsMap = {};
+
+      for (const mealType of mealTypes) {
+        // Only fetch if custom ordering is enabled for this meal
+        const isEnabled = toggleStates?.[`${mealType}_enabled`] || false;
+        if (isEnabled) {
+          const response = await api.get(`/api/menu-items?meal_type=${mealType}`);
+          if (response.ok) {
+            const data = await response.json();
+            itemsMap[mealType] = data.items || [];
+          }
+        }
+      }
+
+      setCustomOrderingItems(itemsMap);
+    } catch (error) {
+      console.log('Error fetching custom ordering items:', error);
+    }
+  }, []);
+
   // Fetch menu options for next 14 days
   const fetchMenuOptions = useCallback(async () => {
     try {
@@ -183,6 +233,32 @@ export default function MealSchedulePage() {
       }
     } catch (error) {
       console.log('Error fetching menu selections:', error);
+    }
+  }, [memberData?.id, memberType]);
+
+  // Fetch existing custom order items with quantities
+  const fetchCustomOrderSelections = useCallback(async () => {
+    if (!memberData?.id) return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await api.get(
+        `/api/custom-order-selections?memberId=${memberData.id}&memberType=${memberType}&date=${today}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        // Organize items by date_mealType
+        const itemsMap = {};
+        data.items?.forEach(item => {
+          const key = `${item.date}_${item.meal_type}`;
+          if (!itemsMap[key]) {
+            itemsMap[key] = [];
+          }
+          itemsMap[key].push(item);
+        });
+        setCustomOrderItems(itemsMap);
+      }
+    } catch (error) {
+      console.log('Error fetching custom order items:', error);
     }
   }, [memberData?.id, memberType]);
 
@@ -257,15 +333,38 @@ export default function MealSchedulePage() {
 
       await fetchSelections();
       await fetchMealHistory();
-      await fetchMenuOptions();
-      await fetchMenuSelections();
+
+      // IMPORTANT: Fetch meal settings FIRST to know toggle states
+      let toggleStates = null;
+      try {
+        const response = await api.get('/api/meal-settings');
+        if (response.ok) {
+          const data = await response.json();
+          toggleStates = data.settings;
+          setMealSettings(toggleStates);
+        }
+      } catch (error) {
+        console.log('Error fetching meal settings:', error);
+        toggleStates = {
+          breakfast_enabled: false,
+          lunch_enabled: false,
+          dinner_enabled: false,
+        };
+        setMealSettings(toggleStates);
+      }
+
+      // Fetch data based on toggle states
+      await fetchCustomOrderingItems(toggleStates); // Only fetches for toggle ON meals
+      await fetchMenuOptions(); // Only needed for toggle OFF meals
+      await fetchMenuSelections(); // User's menu option selections
+      await fetchCustomOrderSelections(); // User's custom order items
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [memberData?.id, memberType, fetchMealHistory, fetchMenuOptions, fetchMenuSelections]);
+  }, [memberData?.id, memberType, fetchMealHistory, fetchCustomOrderingItems, fetchMenuOptions, fetchMenuSelections, fetchCustomOrderSelections]);
 
   useEffect(() => {
     if (memberData?.id) {
@@ -338,7 +437,7 @@ export default function MealSchedulePage() {
     }
   };
 
-  // Save menu option selection
+  // Save menu option selection (regular menu)
   const handleSaveMenuSelection = async (mealType, menuOptionId) => {
     const today = new Date().toISOString().split('T')[0];
     try {
@@ -361,27 +460,114 @@ export default function MealSchedulePage() {
     }
   };
 
-  // Handle menu option change
+  // Save custom order with multiple items
+  const handleSaveCustomOrder = async (mealType, items) => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      console.log('Sending custom order request:', {
+        member_id: memberData.id,
+        member_type: memberType,
+        date: today,
+        meal_type: mealType,
+        items: items
+      });
+
+      const response = await api.post('/api/custom-order-selections', {
+        member_id: memberData.id,
+        member_type: memberType,
+        date: today,
+        meal_type: mealType,
+        items: items
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          console.error('Failed to parse error response:', e);
+          const textResponse = await response.text();
+          console.error('Response text:', textResponse);
+          throw new Error(`Server error: ${response.status} ${response.statusText}`);
+        }
+        console.error('API Error Response:', errorData);
+        throw new Error(errorData.error || 'Failed to save custom order');
+      }
+
+      const data = await response.json();
+      console.log('Custom order saved successfully:', data);
+
+      // Update local state
+      const menuKey = `${today}_${mealType}`;
+      setCustomOrderItems(prev => ({
+        ...prev,
+        [menuKey]: items
+      }));
+
+      // Refresh data
+      await fetchCustomOrderSelections();
+
+      toast.success(`Custom order saved for ${mealType}!`);
+      return true;
+    } catch (error) {
+      console.error('Error saving custom order:', error);
+      toast.error(error.message || 'Failed to save custom order');
+      return false;
+    }
+  };
+
+  // Open custom order modal
+  const handleOpenCustomOrderModal = (mealValue, mealLabel) => {
+    setSelectedMealForOrder({ value: mealValue, label: mealLabel });
+    setShowCustomOrderModal(true);
+  };
+
+  // Confirm custom order from modal
+  const handleConfirmCustomOrder = async (items) => {
+    if (!selectedMealForOrder) return;
+    await handleSaveCustomOrder(selectedMealForOrder.value, items);
+  };
+
+  // Handle menu option change (works for both regular menu and custom ordering)
   const handleMenuOptionChange = async (mealType, optionId) => {
     const today = new Date().toISOString().split('T')[0];
     const menuKey = `${today}_${mealType}`;
 
-    // Update local state
-    setSelectedMenuOptions(prev => ({
-      ...prev,
-      [menuKey]: optionId,
-    }));
+    // Check if custom ordering is enabled for this meal
+    const customOrderingEnabled = mealSettings?.[`${mealType}_enabled`] || false;
+
+    // Update appropriate local state
+    if (customOrderingEnabled) {
+      setCustomOrderSelections(prev => ({
+        ...prev,
+        [menuKey]: optionId,
+      }));
+    } else {
+      setSelectedMenuOptions(prev => ({
+        ...prev,
+        [menuKey]: optionId,
+      }));
+    }
 
     // Auto-save to database if an option is selected
     if (optionId) {
       try {
-        const success = await handleSaveMenuSelection(mealType, optionId);
+        let success;
+        if (customOrderingEnabled) {
+          success = await handleSaveCustomOrderSelection(mealType, optionId);
+        } else {
+          success = await handleSaveMenuSelection(mealType, optionId);
+        }
+
         if (success) {
-          toast.success(`Menu option saved for ${mealType}`);
+          toast.success(`${customOrderingEnabled ? 'Custom order' : 'Menu option'} saved for ${mealType}`);
         }
       } catch (error) {
-        console.error('Error auto-saving menu option:', error);
-        toast.error('Failed to save menu option');
+        console.error('Error auto-saving selection:', error);
+        toast.error('Failed to save selection');
       }
     }
   };
@@ -401,15 +587,29 @@ export default function MealSchedulePage() {
       const newState = !currentState;
       const packageType = memberPackage?.package_type;
 
-      // Menu option is mandatory when available (for ALL package types)
+      // Menu option/custom order is mandatory when available (for ALL package types)
       if (newState) {
         const menuKey = `${today}_${mealType}`;
-        const availableOptions = menuOptions[menuKey] || [];
-        const selectedOption = selectedMenuOptions[menuKey];
+        const customOrderingEnabled = mealSettings?.[`${mealType}_enabled`] || false;
 
-        // If menu options exist for this meal, require selection
-        if (availableOptions.length > 0 && !selectedOption) {
-          toast.error(`Please select a menu option for ${mealType} before confirming`);
+        let availableItems = [];
+        let hasSelection = false;
+
+        if (customOrderingEnabled) {
+          // Check custom ordering items
+          availableItems = customOrderingItems[mealType] || [];
+          // Check if user has selected any items from custom order modal
+          const selectedItems = customOrderItems[menuKey];
+          hasSelection = selectedItems && selectedItems.length > 0;
+        } else {
+          // Check regular menu options
+          availableItems = menuOptions[menuKey] || [];
+          hasSelection = !!selectedMenuOptions[menuKey];
+        }
+
+        // If items exist for this meal, require selection
+        if (availableItems.length > 0 && !hasSelection) {
+          toast.error(`Please select a ${customOrderingEnabled ? 'menu item' : 'menu option'} for ${mealType} before confirming`);
           setSkipping(null);
           return;
         }
@@ -437,12 +637,21 @@ export default function MealSchedulePage() {
           [today]: { ...prev[today], [mealType]: newState },
         }));
 
-        // If turning ON and menu option is selected, save it
+        // If turning ON and option/item is selected, save it
         if (newState) {
           const menuKey = `${today}_${mealType}`;
-          const selectedOption = selectedMenuOptions[menuKey];
-          if (selectedOption) {
-            await handleSaveMenuSelection(mealType, selectedOption);
+          const customOrderingEnabled = mealSettings?.[`${mealType}_enabled`] || false;
+
+          if (customOrderingEnabled) {
+            const selectedCustomItem = customOrderSelections[menuKey];
+            if (selectedCustomItem) {
+              await handleSaveCustomOrderSelection(mealType, selectedCustomItem);
+            }
+          } else {
+            const selectedOption = selectedMenuOptions[menuKey];
+            if (selectedOption) {
+              await handleSaveMenuSelection(mealType, selectedOption);
+            }
           }
         }
 
@@ -686,11 +895,28 @@ export default function MealSchedulePage() {
                 }
 
                 const menuKey = `${todayStr}_${meal.value}`;
-                const availableOptions = menuOptions[menuKey] || [];
-                const selectedOption = selectedMenuOptions[menuKey];
                 const packageType = memberPackage?.package_type;
-                // Show menu options if available and not collected (even if meal is currently skipped)
-                const showMenuOptions = availableOptions.length > 0 && !isCollected;
+
+                // Determine if custom ordering is enabled for this meal
+                const customOrderingEnabled = mealSettings?.[`${meal.value}_enabled`] || false;
+
+                // Get available items based on custom ordering toggle
+                let availableItems = [];
+                if (customOrderingEnabled) {
+                  // Toggle ON: Show custom ordering items (from menu_items table)
+                  availableItems = customOrderingItems[meal.value] || [];
+                } else {
+                  // Toggle OFF: Show menu options (from menu_options table)
+                  availableItems = menuOptions[menuKey] || [];
+                }
+
+                // Get the selected option based on type
+                const selectedOption = customOrderingEnabled
+                  ? customOrderSelections[menuKey]
+                  : selectedMenuOptions[menuKey];
+
+                // Show dropdown if items are available and meal not collected
+                const showMenuOptions = availableItems.length > 0 && !isCollected;
 
                 return (
                   <div key={meal.value} className="p-2.5 lg:p-3 hover:bg-gray-50 transition-colors">
@@ -775,25 +1001,71 @@ export default function MealSchedulePage() {
                       </span>
                     </div>
 
-                    {/* Menu Options Dropdown */}
+                    {/* Menu Selection UI */}
                     {showMenuOptions && !locked && (
                       <div className="mt-2 pl-11 lg:pl-12">
-                        <label className="block text-[10px] lg:text-xs font-semibold text-gray-700 mb-1">
-                          Select Menu Option {(packageType === 'partial' || packageType === 'daily_basis') && <span className="text-red-500">*</span>}
-                        </label>
-                        <select
-                          value={selectedOption || ''}
-                          onChange={(e) => handleMenuOptionChange(meal.value, e.target.value)}
-                          className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          disabled={locked}
-                        >
-                          <option value="">Choose a dish...</option>
-                          {availableOptions.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.option_name}
-                            </option>
-                          ))}
-                        </select>
+                        {customOrderingEnabled ? (
+                          /* Custom Ordering - Button to open modal */
+                          <div>
+                            <button
+                              onClick={() => handleOpenCustomOrderModal(meal.value, meal.label)}
+                              className="w-full px-3 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg text-xs lg:text-sm font-bold hover:from-indigo-600 hover:to-purple-600 transition-all flex items-center justify-center gap-2 shadow-md"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                              </svg>
+                              {customOrderItems[menuKey]?.length > 0 ? (
+                                <>
+                                  View Order ({customOrderItems[menuKey].reduce((sum, item) => sum + item.quantity, 0)} items)
+                                </>
+                              ) : (
+                                <>
+                                  Select Items from Menu
+                                </>
+                              )}
+                            </button>
+                            <p className="mt-1 text-[9px] lg:text-[10px] text-indigo-600 text-center">
+                              ✨ Custom ordering enabled - select from à la carte menu
+                            </p>
+                            {customOrderItems[menuKey]?.length > 0 && (
+                              <div className="mt-2 p-2 bg-indigo-50 rounded-md border border-indigo-200">
+                                <p className="text-[10px] lg:text-xs font-semibold text-indigo-900 mb-1">Selected Items:</p>
+                                <div className="space-y-1">
+                                  {customOrderItems[menuKey].map((item, idx) => (
+                                    <div key={idx} className="flex justify-between text-[9px] lg:text-[10px] text-indigo-700">
+                                      <span>{item.item_name} x{item.quantity}</span>
+                                      <span className="font-semibold">Rs {item.total_price}</span>
+                                    </div>
+                                  ))}
+                                  <div className="pt-1 mt-1 border-t border-indigo-300 flex justify-between font-bold text-[10px] lg:text-xs text-indigo-900">
+                                    <span>Total</span>
+                                    <span>Rs {customOrderItems[menuKey].reduce((sum, item) => sum + item.total_price, 0)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          /* Regular Menu Options - Dropdown */
+                          <div>
+                            <label className="block text-[10px] lg:text-xs font-semibold text-gray-700 mb-1">
+                              Select Menu Option {(packageType === 'partial' || packageType === 'daily_basis') && <span className="text-red-500">*</span>}
+                            </label>
+                            <select
+                              value={selectedOption || ''}
+                              onChange={(e) => handleMenuOptionChange(meal.value, e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                              disabled={locked}
+                            >
+                              <option value="">Choose a dish...</option>
+                              {availableItems.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.option_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1225,6 +1497,21 @@ export default function MealSchedulePage() {
           </div>
         </div>
       )}
+
+      {/* Custom Order Modal */}
+      <CustomOrderModal
+        isOpen={showCustomOrderModal}
+        onClose={() => {
+          setShowCustomOrderModal(false);
+          setSelectedMealForOrder(null);
+        }}
+        mealType={selectedMealForOrder?.value}
+        mealLabel={selectedMealForOrder?.label}
+        availableItems={selectedMealForOrder ? customOrderingItems[selectedMealForOrder.value] || [] : []}
+        existingItems={selectedMealForOrder ? customOrderItems[`${new Date().toISOString().split('T')[0]}_${selectedMealForOrder.value}`] || [] : []}
+        onConfirm={handleConfirmCustomOrder}
+        userBalance={memberPackage?.balance || 0}
+      />
     </div>
   );
 }
