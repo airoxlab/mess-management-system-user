@@ -18,7 +18,7 @@ export async function POST(request) {
         { status: 400 }
       );
     }
-
+//hi
     // Normalize credential (remove dashes)
     const normalizedCredential = credential.replace(/-/g, '');
 
